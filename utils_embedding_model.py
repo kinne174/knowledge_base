@@ -21,7 +21,7 @@ class ArcFeature(object):
         self.sentence_type = sentence_type
 
 
-def feature_loader(args, tokenizer, examples):
+def features_loader(args, tokenizer, examples):
     # returns a list of objects of type ArcFeature similar to hugging face transformers
     break_flag = False
     all_features = []
@@ -35,7 +35,7 @@ def feature_loader(args, tokenizer, examples):
             sentence = sentence_feature['sentence']
 
             try:
-                inputs = tokenizer.encode_plus(
+                inputs = tokenizer.encode(
                     sentence,
                     add_special_tokens=True,
                     max_length=args.max_length
@@ -51,7 +51,6 @@ def feature_loader(args, tokenizer, examples):
             input_ids = inputs['input_ids']
 
             input_mask = [1]*len(input_ids)
-            # attention_mask = [0]*len(question_ending) + [1]*min(len(context), args.max_length - len(question_ending))
 
             padding_length = args.max_length - len(input_ids)
             if padding_length > 0:

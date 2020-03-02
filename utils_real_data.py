@@ -70,7 +70,7 @@ def noisy_sentences(words, all_changed_indices):
     return noise_sentences
 
 
-def example_loader(args):
+def examples_loader(args):
     # returns an object of type ArcExample similar to hugging face transformers
 
     # bad ids, each has at least one answer that does not contain any context
