@@ -14,13 +14,14 @@ words = brown.words()
 
 class ArcExample(object):
 
-    def __init__(self, example_id, sentences, changed_words_indices, label):
+    def __init__(self, example_id, sentences, sentence_type, changed_words_indices, label):
         self.example_id = example_id
         self.sentence_features = [{
             'sentence': s,
             'changed_word_indices': cwi,
-        } for s, cwi in zip(sentences, changed_words_indices)]
+        } for s, st, cwi in zip(sentences, changed_words_indices)]
         self.label = label
+        self.sentence_type = sentence_type
 
 
 def domain_finder(args, question, contexts, answers):
@@ -50,6 +51,7 @@ def domain_finder(args, question, contexts, answers):
 
 
 def attention_loader(words):
+    # TODO make this based on that one paper with essential learning
     all_changed_inds = []
     for _ in range(3):
         center_index = random.randint(0, len(words)-1)
@@ -59,6 +61,7 @@ def attention_loader(words):
 
 
 def noisy_sentences(words, all_changed_indices):
+    # TODO change this to sample something intelligent
     noise_sentences = []
     for changed_indices in all_changed_indices:
         noise_words= [w if ci == 0 else random.sample(words, 1) for w, ci in zip(words, changed_indices)]
@@ -132,6 +135,7 @@ def example_loader(args):
                         all_examples.append(ArcExample(example_id=id,
                                                        sentences=question_answer_sentences,
                                                        changed_words_indices=question_answer_indices,
+                                                       sentence_type=1,
                                                        label=label))
 
                     # if sentence_in_domain is not empty, create noise and add to examples
@@ -158,6 +162,7 @@ def example_loader(args):
                             all_examples.append(ArcExample(example_id='{}-{}-{}'.format(subset, json_ind, sentence_ind),
                                                            sentences=all_sentences,
                                                            changed_words_indices=changed_words_indices,
+                                                           sentence_type=0,
                                                            label=label))
 
                     if args.cutoff is not None and len(all_examples) >= args.cutoff and subset == 'train':
