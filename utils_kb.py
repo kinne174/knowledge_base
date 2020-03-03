@@ -4,6 +4,7 @@ import torch.nn as nn
 import logging
 from torch.utils.data import DataLoader, TensorDataset
 import math
+import spacy
 
 # logging
 logger = logging.getLogger(__name__)
@@ -46,10 +47,29 @@ def compute_edge_values(input_ids, num_nodes, threshold):
     # return matrix
     return edge_values
 
-def build_graph(args, dataset):
+
+def get_word_embeddings(vocabulary):
+    # load in spacy model for word embeddings
+    nlp = spacy.load("en_core_web_md")
+    tokens = nlp(' '.join(vocabulary))
+
+    embeddings = torch.empty((len(vocabulary), 300))
+
+    for token_index, token in enumerate(tokens):
+        if token.has_vector:
+            embeddings[token_index, :] = torch.tensor(token.vector)
+        else:
+            logger.info('The token {} does not have a vector. Replacing with noise.'.format(token))
+            embeddings[token_index, :] = torch.rand((300,))
+
+    return embeddings
+
+
+def build_graph(args, dataset, vocabulary):
+    # assuming vocabulary is a list of words in order of mytokenizer, so the 0th word is the 0 represented in the tokenizer etc.
     assert isinstance(dataset, TensorDataset)
 
-    num_nodes = torch.max(dataset) # see what dataset is
+    num_nodes = len(vocabulary)
 
     edge_values = compute_edge_values(dataset[0], num_nodes, args.pmi_threshold) # TODO this is wrong, need to prep the input_ids first
 
@@ -57,13 +77,16 @@ def build_graph(args, dataset):
 
     g.add_nodes(num_nodes)
 
+    embeddings = get_word_embeddings(vocabulary)
+    g.ndata['embedding'] = embeddings
+
     non_zero_edge_values = edge_values.nonzero(as_tuple=True)
     dest = non_zero_edge_values[:, 0]
     source = non_zero_edge_values[:, 1]
 
     g.add_edges(dest, source)
 
-    g.edges[dest, source].data['values'] = edge_values[non_zero_edge_values]
+    g.edges[dest, source].data['value'] = edge_values[non_zero_edge_values]
 
     return g
 
@@ -72,7 +95,7 @@ def save_graph(args, G):
     raise NotImplementedError
 
 
-def load_graph(args):
+def load_graph(args, dataset):
     # if the filename exists load it, otherwise build it
     raise NotImplementedError
 
