@@ -37,7 +37,7 @@ def features_loader(args, tokenizer, examples):
             try:
                 inputs = tokenizer.encode(
                     sentence,
-                    add_special_tokens=True,
+                    add_special_tokens=False,
                     max_length=args.max_length
                 )
             except AssertionError as err_msg:
