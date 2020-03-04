@@ -1,10 +1,10 @@
 import dgl
+from dgl.data.utils import save_graphs, load_graphs
 import torch
-import torch.nn as nn
 import logging
-from torch.utils.data import DataLoader, TensorDataset
 import math
 import spacy
+import os
 
 # logging
 logger = logging.getLogger(__name__)
@@ -16,9 +16,9 @@ def compute_edge_values(input_ids, num_nodes, threshold):
 
     # make a list of all rows which have the indices first, then double for loop through that to get intersections
     row_input_ids = []
-    for ell in range(num_nodes):
+    for ell in range(1, num_nodes):
         ell_inds = (input_ids == ell).nonzero(as_tuple=False)
-        unique_ell_rows = set(ell_inds[:, 0].squeeze(0).tolist())
+        unique_ell_rows = set(ell_inds[:, 0].tolist())
         row_input_ids.append(unique_ell_rows)
 
     # for each lower triangle index pair in the matrix
@@ -28,18 +28,18 @@ def compute_edge_values(input_ids, num_nodes, threshold):
         # use these to caculate PMI
         # if the value is above the threshold add it to the matrix, otherwise replace with 0
         # make matrix symmetric
-    for i in range(1, num_nodes):
+    for i in range(1, num_nodes-1):
         for j in range(i):
-            num_i = len(row_input_ids[i])
-            num_j = len(row_input_ids[j])
+            freq_i = len(row_input_ids[i])/input_ids.shape[0]
+            freq_j = len(row_input_ids[j])/input_ids.shape[0]
 
-            num_i_j = len(row_input_ids[i].intersection(row_input_ids[j]))
+            freq_i_j = len(row_input_ids[i].intersection(row_input_ids[j]))/input_ids.shape[0]
 
-            pmi = math.log(num_i_j/(num_i*num_j))
+            npmi = math.log(freq_i*freq_j)/math.log(freq_i_j) - 1 if freq_i_j > 0 else -1
 
-            if pmi >= threshold:
-                edge_values[i, j] = pmi
-                edge_values[j, i] = pmi
+            if npmi >= threshold:
+                edge_values[i, j] = npmi
+                edge_values[j, i] = npmi
             else:
                 edge_values[i, j] = 0.
                 edge_values[j, i] = 0.
@@ -50,14 +50,14 @@ def compute_edge_values(input_ids, num_nodes, threshold):
 
 def get_word_embeddings(vocabulary):
     # load in spacy model for word embeddings
-    nlp = spacy.load("en_core_web_md")
-    tokens = nlp(' '.join(vocabulary))
+    nlp = spacy.load("en_core_web_md", disable=['ner', 'parser'])
+    # tokens = nlp(' '.join(vocabulary))
 
     embeddings = torch.empty((len(vocabulary), 300))
 
-    for token_index, token in enumerate(tokens):
-        if token.has_vector:
-            embeddings[token_index, :] = torch.tensor(token.vector)
+    for token_index, token in enumerate(vocabulary):
+        if nlp.vocab.has_vector(token):
+            embeddings[token_index, :] = torch.tensor(nlp.vocab.get_vector(token))
         else:
             logger.info('The token {} does not have a vector. Replacing with noise.'.format(token))
             embeddings[token_index, :] = torch.rand((300,))
@@ -67,11 +67,14 @@ def get_word_embeddings(vocabulary):
 
 def build_graph(args, dataset, vocabulary):
     # assuming vocabulary is a list of words in order of mytokenizer, so the 0th word is the 0 represented in the tokenizer etc.
-    assert isinstance(dataset, TensorDataset)
 
     num_nodes = len(vocabulary)
 
-    edge_values = compute_edge_values(dataset[0], num_nodes, args.pmi_threshold) # TODO this is wrong, need to prep the input_ids first
+    input_ids = dataset.tensors[0]
+    input_ids = input_ids.reshape((-1, input_ids.shape[-1]))
+    random_indices = torch.randint(low=0, high=4, size=(dataset.tensors[0].shape[0],)) + torch.arange(start=0, end=input_ids.shape[0], step=4)
+    randomed_inputed_ids = input_ids[random_indices, :]
+    edge_values = compute_edge_values(randomed_inputed_ids, num_nodes, args.pmi_threshold)
 
     g = dgl.DGLGraph()
 
@@ -80,7 +83,7 @@ def build_graph(args, dataset, vocabulary):
     embeddings = get_word_embeddings(vocabulary)
     g.ndata['embedding'] = embeddings
 
-    non_zero_edge_values = edge_values.nonzero(as_tuple=True)
+    non_zero_edge_values = edge_values.nonzero(as_tuple=False)
     dest = non_zero_edge_values[:, 0]
     source = non_zero_edge_values[:, 1]
 
@@ -92,14 +95,24 @@ def build_graph(args, dataset, vocabulary):
 
 
 def save_graph(args, G):
-    raise NotImplementedError
+    cutoff_str = '' if args.cutoff is None else '_cutoff{}'.format(args.cutoff)
+    graph_filename = os.path.join(args.cache_dir, 'graph{}.py'.format(cutoff_str))
+
+    logger.info('Saving graph to {}'.format(graph_filename))
+
+    save_graphs(graph_filename, G)
+
+    return -1
 
 
-def load_graph(args, dataset):
-    # if the filename exists load it, otherwise build it
-    raise NotImplementedError
+def load_graph(args):
+    cutoff_str = '' if args.cutoff is None else '_cutoff{}'.format(args.cutoff)
+    graph_filename = os.path.join(args.cache_dir, 'graph{}.py'.format(cutoff_str))
 
+    logger.info('Loading graph from {}'.format(graph_filename))
 
+    G = load_graphs(graph_filename)
 
+    return G
 
 
