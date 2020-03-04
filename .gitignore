@@ -1,0 +1,7 @@
+# files
+logging/
+output/
+saved/
+
+# test file
+test.py
