@@ -1,7 +1,6 @@
 import os
 from nltk import word_tokenize, sent_tokenize
 from nltk.corpus import brown
-import string
 import random
 import json_lines
 import tqdm
