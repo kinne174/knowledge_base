@@ -1,20 +1,28 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import logging
 import numpy as np
+import dgl
+import dgl.function as df
+from scipy.sparse import csr_matrix, tril
 
 # logging
 logger = logging.getLogger(__name__)
 
 
 class GraphBlock(nn.Module):
-    def __init__(self, args, training,):
+    def __init__(self, args,):
         super(GraphBlock, self).__init__()
 
         self.args = args # the input from user
-        self.training = training # a bool if the model is training or not
+        # self.training = training # a bool if the model is training or not
 
-    def forward(self, knowledge_base, **inputs):
+        self.lstm = nn.LSTM(args.max_length, args.lstm_hidden_dim)
+        self.linear1 = nn.Linear(in_features=args.max_length, out_features=args.max_length)
+        self.linear2 = nn.Linear(args.lstm_hidden_dim, 1)
+
+    def forward(self, knowledge_base, training, **inputs):
         '''
 
         :param knowledge_base: DGL graph that needs to be subsetted based on the inputs
@@ -22,24 +30,124 @@ class GraphBlock(nn.Module):
         :return: error of predicted versus real labels
         '''
 
+        input_ids = inputs['input_ids']
+        labels = inputs['labels']
+
+        batch_size = labels.shape[0]
+
+        all_answer_scores = torch.empty((batch_size, 4))
+
         # for each batch
+        for b in range(batch_size):
             # for each input
+            for i in range(4):
                 # subset graph based on current input, grab nodes of inputs and first neighbor nodes and all corresponding edges, create a copy so can change edges/ nodes
+                current_input_ids = input_ids[b, i, :]
+                subset_knowledge_base, ids_mapping = self.subset_graph(knowledge_base, current_input_ids)
 
                 # if training cast edges to {0, 1} in a bernoulli fashion based on word2vec function, else return as is
+                subset_knowledge_base = self.cast_edges(subset_knowledge_base, training)
 
                 # aggregate nodes in a mean/ summing way, can try to do this with dgl
+                subset_knowledge_base.update_all(df.u_mul_e('embeddings', 'value', 'embeddings_'), df.mean('embeddings_', 'embeddings_mean'))
 
                 # MLP on aggregated nodes, not clear if output needs to be the same dimension or not
+                h = subset_knowledge_base.ndata.pop('embeddings_mean')
+                transformed_nodes = self.linear1(h)
 
                 # LSTM on transformed nodes in order of the input
+                lstm_transformed_nodes = torch.cat([transformed_nodes[cui, :] for cui in current_input_ids if not cui == 0], dim=0).unsqueeze(1)
+                lstm_out, _ = self.lstm(lstm_transformed_nodes)
 
                 # sentence embedding through an MLP to get a scalar score of accuracy
+                answer_score = self.linear2(lstm_out.squeeze())
 
-            # soft max over logits, may need to transform again if output from MLP is not "correct"
+                all_answer_scores[b, i] = answer_score
 
-            # calculate error using Binary Cross Entropy loss
+        # soft max over logits, may need to transform again if output from MLP is not "correct"
+        softmaxed_scores = F.log_softmax(all_answer_scores, dim=1)
 
-            # calculate prediction
+        # calculate error using Binary Cross Entropy loss
+        error = self.loss_function(softmaxed_scores, labels)
+
+        # calculate prediction
+        predictions = torch.argmax(softmaxed_scores, dim=1)
 
         # return error and individual predictions for each element in batch
+        return error, predictions
+
+    @staticmethod
+    def subset_graph(G, input_ids):
+        # subset dgl graph G and return a copy
+        # input_ids is a 1 dimensional tensor of length args.max_length
+        assert isinstance(G, dgl.DGLGraph)
+
+        unique_ids = torch.unique(input_ids).tolist()
+
+        adj_matrix = tril(G.adjacency_matrix_scipy(), format('csr'))
+        assert isinstance(adj_matrix, csr_matrix)
+
+        indptr = adj_matrix.indptr.tolist()
+        indices = adj_matrix.indices.tolist()
+
+        all_nodes = []
+        all_edges = []
+        for ui in unique_ids:
+            if indptr[ui+1] - indptr[ui] > 0:
+                col_indices = indices[indptr[ui]:indptr[ui+1]]
+
+                all_nodes.extend(col_indices)
+
+                for ci in col_indices:
+                    all_edges.append((ui, ci))
+
+        all_nodes = list(set(all_nodes))
+        all_nodes.sort()
+
+        dest, src = map(list, zip(*all_edges))
+
+        new_dest = [all_nodes.index(d) for d in dest]
+        new_src = [all_nodes.index(s) for s in src]
+
+        new_G = dgl.DGLGraph()
+
+        new_G.add_nodes(len(all_nodes))
+        new_G.ndata['embeddings'] = G.ndata['embeddings'][all_nodes]
+
+        new_G.add_edges(new_src, new_dest)
+        new_G.add_edges(new_dest, new_src)
+
+        src_dest = src + dest
+        dest_src = dest + src
+
+        new_src_dest = new_src + new_dest
+        new_dest_src = new_dest + new_src
+
+        new_G.edges[new_src_dest, new_dest_src].data['value'] = G.edges[src_dest, dest_src].data['value']
+
+        ids_mapping = {ui: all_nodes.index(ui) for ui in torch.unique(all_nodes)}
+
+        return new_G, ids_mapping
+
+    def cast_edges(self, G, training):
+        if not training:
+            return G
+
+        assert isinstance(G, dgl.DGLGraph)
+
+        edge_values = G.edata['value'].squeeze().tolist()
+
+        def f(edge_val, parameter):
+            # TODO write a better casting function
+            return int(round(edge_val))
+
+        new_edge_values = torch.tensor([f(e, self.args.edge_paramter) for e in edge_values]).reshape((-1, 1))
+
+        G.edata['value'] = new_edge_values
+
+        return G
+
+
+
+
+
