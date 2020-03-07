@@ -3,6 +3,7 @@ import logging
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from torch.utils.data.sampler import RandomSampler, SequentialSampler
+import torch.optim as optim
 from tqdm import tqdm, trange
 import os, glob
 import argparse
@@ -13,6 +14,7 @@ from utils_tokenizer import MyTokenizer
 from utils_real_data import examples_loader
 from utils_embedding_model import features_loader
 from utils_kb import build_graph, load_graph, save_graph
+from utils_models import GraphBlock
 
 # logging
 logger = logging.getLogger(__name__)
@@ -100,23 +102,49 @@ def load_and_cache_(args):
     return my_tokenizer, dataset, knowledge_base
 
 
-def train(args, dataset, knowledge_base, model):
+def train(args, dataset, knowledge_base, model, optimizer):
 
     # set up dataset in a sampler
+    # use pytorch data loaders to cycle through the data,
+    train_sampler = RandomSampler(dataset, replacement=False)
+    train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=args.batch_size)
 
-    # initialize optimizers
-
+    train_iterator = trange(int(args.epochs), desc="Epoch")
     # start training
+    logger.info('Starting to train!')
+    logger.info('There are {} examples.'.format(len(dataset)))
+    for epoch, _ in enumerate(train_iterator):
+        epoch_iterator = tqdm(train_dataloader, desc="Iteration, batch size {}".format(args.batch_size))
+        for iterate, batch in enumerate(epoch_iterator):
 
-        # get batch
+            model.zero_grad()
 
-        # send through model
+            # get batch
+            batch = tuple(t.to(args.device) for t in batch)
+            inputs = {'input_ids': batch[0],
+                      'input_mask': batch[1],
+                      'sentence_type': batch[2],
+                      'labels': batch[3],
+                      }
 
-        # backwards pass
+            # send through model
+            model.train()
+            error, predictions = model(knowledge_base, training=True, **inputs)
 
-        # depending on args do evaluation
+            # backwards pass
+            error.backward()
+            optimizer.step()
 
-    pass
+            print('model params')
+            for i in range(len(list(model.parameters()))):
+                print(i)
+                print(list(model.parameters())[i].grad)
+                print(torch.max(list(model.parameters())[i].grad))
+            print('hi')
+
+            logger.info('The error is {}'.format(error))
+
+            # depending on args do evaluation
 
 
 def evaluate(args):
@@ -143,11 +171,16 @@ def main():
                 self.seed = 1234
                 self.max_length = 128
                 self.do_lower_case = True
+                self.no_gpu = True
+                self.batch_size = 2
+                self.epochs = 3
 
                 self.domain_words = ['moon', 'earth']
                 self.only_context = True
                 self.pmi_threshold = 0.4
                 self.common_word_threshold = 3
+                self.lstm_hidden_dim = 25
+                self.edge_parameter = 1
 
 
         args = Args()
@@ -190,6 +223,11 @@ def main():
 
     args.cache_dir = proposed_cache_dir
 
+    # get whether running on cpu or gpu
+    device = torch.device('cpu') if args.no_gpu else get_device()
+    args.device = device
+    logger.info('Using device {}'.format(args.device))
+
     for arg, value in sorted(vars(args).items()):
         logger.info("Argument {}: {}".format(arg, value))
 
@@ -200,10 +238,16 @@ def main():
     my_tokenizer, dataset, knowledge_base = load_and_cache_(args)
 
     # Load models or randomly initialize, everything after the randomization should be doable in a single function
-    model = MyModel()
+    model = GraphBlock(args)
+
+    # throw model to device
+    model.to(args.device)
+
+    # intiailize optimizer
+    optimizer = optim.Adam(params=model.parameters())
 
     # do training here
-    train(args, dataset, knowledge_base, model)
+    train(args, dataset, knowledge_base, model, optimizer)
 
     # do evaluation here
 
