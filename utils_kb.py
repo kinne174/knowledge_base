@@ -15,7 +15,7 @@ def compute_edge_values(input_ids, num_nodes, threshold):
     edge_values = torch.ones((num_nodes, num_nodes), dtype=torch.float)
 
     # make a list of all rows which have the indices first, then double for loop through that to get intersections
-    row_input_ids = []
+    row_input_ids = [{}]
     for ell in range(1, num_nodes):
         ell_inds = (input_ids == ell).nonzero(as_tuple=False)
         unique_ell_rows = set(ell_inds[:, 0].tolist())
@@ -28,7 +28,7 @@ def compute_edge_values(input_ids, num_nodes, threshold):
         # use these to caculate PMI
         # if the value is above the threshold add it to the matrix, otherwise replace with 0
         # make matrix symmetric
-    for i in range(1, num_nodes-1):
+    for i in range(1, num_nodes):
         for j in range(i):
             freq_i = len(row_input_ids[i])/input_ids.shape[0]
             freq_j = len(row_input_ids[j])/input_ids.shape[0]
@@ -89,7 +89,9 @@ def build_graph(args, dataset, vocabulary):
 
     g.add_edges(dest, source)
 
-    g.edges[dest, source].data['value'] = edge_values[non_zero_edge_values]
+    non_zero_edge_values = edge_values.nonzero(as_tuple=True)
+    edges_to_add = edge_values[non_zero_edge_values]
+    g.edges[dest, source].data['value'] = edges_to_add
 
     return g
 
@@ -111,7 +113,8 @@ def load_graph(args):
 
     logger.info('Loading graph from {}'.format(graph_filename))
 
-    G = load_graphs(graph_filename)
+    glist, _ = load_graphs(graph_filename)
+    G = glist[0]
 
     return G
 
