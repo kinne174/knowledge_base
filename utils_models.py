@@ -18,8 +18,8 @@ class GraphBlock(nn.Module):
         self.args = args # the input from user
         # self.training = training # a bool if the model is training or not
 
-        self.lstm = nn.LSTM(100, args.lstm_hidden_dim)
-        self.linear1 = nn.Linear(in_features=300, out_features=100) # TODO make these more functional
+        self.linear1 = nn.Linear(in_features=args.word_embedding_dim, out_features=args.mlp_hidden_dim)
+        self.lstm = nn.LSTM(args.mlp_hidden_dim, args.lstm_hidden_dim)
         self.linear2 = nn.Linear(args.lstm_hidden_dim, 1)
 
         self.loss_function = nn.BCEWithLogitsLoss()
@@ -142,8 +142,7 @@ class GraphBlock(nn.Module):
         edge_values = G.edata['value'].tolist()
 
         def f(edge_val, parameter):
-            # TODO write a better casting function
-            return 1. # make sure returning a float
+            return np.random.binomial(1, np.sqrt(parameter/edge_val), None).astype(np.float) # make sure returning a float
 
         new_edge_values = torch.tensor([f(e, self.args.edge_parameter) for e in edge_values]).reshape((-1,))
 
