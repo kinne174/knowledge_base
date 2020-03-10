@@ -88,7 +88,7 @@ def get_words(cutoff):
 
     padding_tokens = ['[EOS]', '[BOS]']
     token_list = []
-    word_to_idx = {'[PAD]': 0}
+    word_to_idx = {'[PAD]': 0, '[BOS]': 1, '[EOS]': 2}
     for ind1, (sent, labels) in enumerate(zip(words_list, labels_list)):
         new_sent = []
         new_labels = []
@@ -174,11 +174,21 @@ class LSTM2MLP(nn.Module):
                                     nn.Sigmoid())
         self.loss = nn.MSELoss(reduction='none')
 
-    def forward(self, input_ids, input_masks, labels):
+    def forward(self, input_ids, labels, input_masks=None, add_special_characters=False):
         # each should be batch_size x max_length
 
         batch_size = input_ids.shape[0]
+
+        if add_special_characters:
+            input_ids = torch.cat((torch.ones((batch_size, 1), dtype=torch.long), input_ids, 2*torch.ones((batch_size, 1), dtype=torch.long)), dim=1)
+            labels = torch.cat((torch.zeros((batch_size, 1), dtype=torch.float), labels, torch.zeros((batch_size, 1), dtype=torch.float)), dim=1)
+
         max_length = input_ids.shape[1]
+
+        if input_masks is None:
+            input_masks = torch.ones((batch_size, max_length), dtype=torch.long)
+            if add_special_characters:
+                input_masks = torch.cat((torch.zeros((batch_size, 1), dtype=torch.long), input_masks, torch.zeros((batch_size, 1), dtype=torch.long)), dim=1)
 
         # now these are max_length x batch_size
         # labels = labels.t()
@@ -202,7 +212,12 @@ class LSTM2MLP(nn.Module):
         sum_masks = torch.sum(input_masks, dim=1)
         out_errors = torch.mean(sum_errors/sum_masks)
 
-        return out_errors
+        out_scores = out_scores.reshape((batch_size, max_length))
+
+        if add_special_characters:
+            out_scores = out_scores[:, 1:-1]
+
+        return out_scores, out_errors
 
 
 def save_model(model, embedding_matrix, hidden_dim):
@@ -279,7 +294,7 @@ def train(batch_size, epochs, hidden_dim, cutoff=None):
             # send through model
             model.train()
             # Todo output predictions too for analysis
-            error = model(**inputs)
+            _, error = model(**inputs)
 
             # backwards pass
             error.backward()
@@ -294,11 +309,7 @@ def train(batch_size, epochs, hidden_dim, cutoff=None):
 
             logger.info('The error is {}'.format(error))
 
-            break
-        break
-
     save_model(model, embedding_matrix, hidden_dim)
-    _ = load_model(hidden_dim)
 
 
 if __name__ == '__main__':
