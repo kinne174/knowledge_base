@@ -109,6 +109,9 @@ def train(args, dataset, knowledge_base, model, optimizer):
     train_sampler = RandomSampler(dataset, replacement=False)
     train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=args.batch_size)
 
+    num_training_correct = 0
+    num_training_seen = 0
+
     train_iterator = trange(int(args.epochs), desc="Epoch")
     # start training
     logger.info('Starting to train!')
@@ -116,6 +119,7 @@ def train(args, dataset, knowledge_base, model, optimizer):
     for epoch, _ in enumerate(train_iterator):
         epoch_iterator = tqdm(train_dataloader, desc="Iteration, batch size {}".format(args.batch_size))
         for iterate, batch in enumerate(epoch_iterator):
+            logger.info('Epoch: {}, Batch: {}'.format(epoch, iterate))
 
             model.zero_grad()
 
@@ -144,7 +148,12 @@ def train(args, dataset, knowledge_base, model, optimizer):
 
             logger.info('The error is {}'.format(error))
 
-            # depending on args do evaluation
+            num_training_seen += inputs['labels'].shape[0]
+            num_training_correct += sum([inputs['labels'][i, p] for i, p in zip(range(inputs['labels'].shape[0]), predictions)])
+            logger.info('The training total correct is {} out of {} for a percentage of {}'.format(
+                num_training_correct, num_training_seen, round(num_training_correct/num_training_seen,3)))
+
+            # TODO depending on args do evaluation
 
 
 def evaluate(args):
@@ -167,7 +176,7 @@ def main():
                 self.tokenizer_model = 'bert'
                 self.cutoff = 50
                 self.overwrite_output_dir = True
-                self.overwrite_cache_dir = False
+                self.overwrite_cache_dir = True
                 self.seed = 1234
                 self.max_length = 128
                 self.do_lower_case = True
@@ -180,7 +189,9 @@ def main():
                 self.pmi_threshold = 0.4
                 self.common_word_threshold = 3
                 self.lstm_hidden_dim = 25
-                self.edge_parameter = 1
+                self.edge_parameter = 0.5
+                self.word_embedding_dim = 300
+                self.mlp_hidden_dim = 100
 
 
         args = Args()
