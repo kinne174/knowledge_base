@@ -173,6 +173,37 @@ class LSTM2MLP(nn.Module):
         return out_errors
 
 
+def save_model(model, embedding_matrix, hidden_dim):
+    model_save_file = 'saved/essential_terms_hidden{}.pt'.format(hidden_dim)
+
+    with open(model_save_file, 'w') as mf:
+        torch.save(model.state_dict(), mf)
+
+    embedding_matrix_save_file = 'saved/embedding_matrix.py'
+
+    with open(embedding_matrix_save_file, 'w') as ef:
+        torch.save(embedding_matrix, ef)
+
+
+def load_model(hidden_dim):
+    filenames = glob.glob('saved/*hidden*.pt')
+
+    model_filename = [f for f in filenames if f[(f.index('hidden')+len('hidden')):f.index('.pt')] == str(hidden_dim)]
+
+    assert len(model_filename) == 1
+
+    embedding_matrix_save_file = 'saved/embedding_matrix.py'
+    if os.path.exists(embedding_matrix_save_file):
+        with open(embedding_matrix_save_file, 'r') as ef:
+            embedding_matrix = torch.load(ef)
+
+    model = LSTM2MLP(embedding_matrix=embedding_matrix, hidden_dim=hidden_dim)
+    model.load_state_dict(torch.load(model_filename[0]))
+    model.eval()
+
+    return model
+
+
 def train(batch_size, epochs, hidden_dim, cutoff=None):
 
     all_token_list, all_input_masks, all_labels_list, word_to_idx = get_words(cutoff)
@@ -229,6 +260,8 @@ def train(batch_size, epochs, hidden_dim, cutoff=None):
             print('hi')
 
             logger.info('The error is {}'.format(error))
+
+    save_model(model)
 
 
 if __name__ == '__main__':
