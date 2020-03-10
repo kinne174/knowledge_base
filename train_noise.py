@@ -29,6 +29,8 @@ def get_words(cutoff):
     words_list = []
     labels_list = []
 
+    num_lost = 0
+
     with open(data_filename, 'r') as tsv_file:
         tsv_reader = csv.reader(tsv_file)
 
@@ -37,14 +39,17 @@ def get_words(cutoff):
             line = line.split('\t')
 
             question_text = line[0]
-            num_annontators = int(line[1])
+            num_annotators = int(line[1])
             annotations = line[2]
 
-            answer_letters = ['(A)', '(B)', '(C)', '(D)']
+            answer_letters = ['(A)', '(B)', '(C)', '(D)', '(1)', '(2)', '(3)', '(4)']
 
-            if not all([answer_letter in question_text for answer_letter in answer_letters]):
-                assert any([answer_letter in question_text for answer_letter in answer_letters]), 'One of {} is not in the question text'.format(' '.join(answer_letters))
-                answer_letters = [a_l for a_l in question_text if a_l in answer_letters]
+            if not any([answer_letter in question_text for answer_letter in answer_letters]):
+                logger.info('One of {} is not in the question text: {}. Skipping.'.format(', '.join(answer_letters), question_text))
+                num_lost += 1
+                continue
+
+            answer_letters = [a_l for a_l in answer_letters if a_l in question_text]
 
             answer_inds = [question_text.index(answer_letter) for answer_letter in answer_letters] + [len(question_text)]
 
@@ -54,16 +59,16 @@ def get_words(cutoff):
             answer_scores = []
             for t in answer_ind_tuples:
                 answer_words = question_text[t[0]:t[1]].rstrip().split(' ')
-                answer_words = [aw for aw in answer_words[1:] if aw not in stop_words]
+                answer_words = [aw.lower() for aw in answer_words[1:] if aw not in stop_words]
 
                 answers.append(answer_words)
                 answer_scores.append([1.]*len(answer_words))
 
             annotations = annotations.split('|')
             words_and_scores = [(annotation[:-1].lower(), int(annotation[-1])) for annotation in annotations]
-            assert all([score <= num_annontators for _, score in words_and_scores])
+            assert all([score <= num_annotators for _, score in words_and_scores])
 
-            words_and_percents = [(w, s/num_annontators) for w, s in words_and_scores]
+            words_and_percents = [(w, s/num_annotators) for w, s in words_and_scores]
 
             q_words, percents = map(list, zip(*words_and_percents))
 
@@ -79,43 +84,64 @@ def get_words(cutoff):
                 break
 
     logger.info('There are {} lines in the data'.format(len(words_list)))
+    logger.info('Lost {} to no answers'.format(num_lost))
 
-    max_length = max([len(w) for w in words_list])
-
-    pad_token = '[PAD]'
-    all_input_masks = []
-    all_words_list = []
-    all_labels_list = []
-
-    for words, labels in zip(words_list, labels_list):
-        assert len(words) == len(labels)
-        padding_length = max_length - len(words)
-        input_mask = [1]*len(words) + [0]*padding_length
-
-        all_input_masks.append(input_mask)
-        all_words_list.append(words + [pad_token]*padding_length)
-        all_labels_list.append(labels + [0.]*padding_length)
-
-    assert all([len(input) == len(words) == len(labels) for input, words, labels in zip(all_input_masks, all_words_list, all_labels_list)])
-
-    all_token_list = []
-    word_to_idx = {}
-    for sent in all_words_list:
+    padding_tokens = ['[EOS]', '[BOS]']
+    token_list = []
+    word_to_idx = {'[PAD]': 0}
+    for ind1, (sent, labels) in enumerate(zip(words_list, labels_list)):
         new_sent = []
-        for word in sent:
-            word = ''.join([c for c in word if c.isalpha()])
+        new_labels = []
+        for ind2, (word, label) in enumerate(zip(sent, labels)):
+            word = ''.join([c for c in word if c.isalnum()]) if word not in padding_tokens else word
+
+            if not nlp.vocab.has_vector(word) and word not in padding_tokens:
+                spaced_tokens = [(word[:i], word[i:]) for i in range(1, len(word))]
+                temp = [all((nlp.vocab.has_vector(st[0]), nlp.vocab.has_vector(st[1]))) for st in spaced_tokens]
+                if any(temp):
+                    if sum(temp) > 1:
+                        logger.info('More than one acceptable pairing of words: {}'.format(' '.join(['({}, {})'.format(st[0], st[1]) for st, t in zip(spaced_tokens, temp) if t])))
+                    best_words = spaced_tokens[temp.index(True)]
+                    for best_word in best_words:
+                        if best_word not in word_to_idx:
+                            word_to_idx[best_word] = len(word_to_idx)
+
+                        new_sent.append(word_to_idx[best_word])
+                    new_labels.extend([label]*2)
+                    continue
+
             if word not in word_to_idx:
                 word_to_idx[word] = len(word_to_idx)
 
             new_sent.append(word_to_idx[word])
-        all_token_list.append(new_sent)
+            new_labels.append(label)
 
-    return all_token_list, all_input_masks, all_labels_list, word_to_idx
+        assert len(new_sent) == len(new_labels)
+
+        token_list.append(new_sent)
+        labels_list[ind1] = new_labels
+
+    max_length = max([len(t) for t in token_list])
+
+    all_input_masks = []
+    all_tokens_list = []
+    all_labels_list = []
+
+    for tokens, labels in zip(token_list, labels_list):
+        assert len(tokens) == len(labels), 'The length of tokens is {} and the length of labels is {}'.format(len(tokens), len(labels))
+        padding_length = max_length - len(tokens)
+        input_mask = [1]*len(tokens) + [0]*padding_length
+
+        all_input_masks.append(input_mask)
+        all_tokens_list.append(tokens + [0]*padding_length)
+        all_labels_list.append(labels + [0.]*padding_length)
+
+    assert all([len(input) == len(tokens) == len(labels) == max_length for input, tokens, labels in zip(all_input_masks, all_tokens_list, all_labels_list)])
+
+    return all_tokens_list, all_input_masks, all_labels_list, word_to_idx
 
 
 def create_embedding_matrix(word_to_idx):
-    nlp = spacy.load("en_core_web_md", disable=['ner', 'parser'])
-
     embedding_matrix = torch.empty((len(word_to_idx), 300))
 
     assert isinstance(word_to_idx, dict)
@@ -123,8 +149,14 @@ def create_embedding_matrix(word_to_idx):
         if nlp.vocab.has_vector(word):
             embedding_matrix[id, :] = torch.tensor(nlp.vocab.get_vector(word))
         else:
-            logger.info('The token {} does not have a vector. Replacing with noise.'.format(word))
-            embedding_matrix[id, :] = torch.rand((300,))
+            spaced_tokens = [(word[:i], word[i:]) for i in range(1, len(word)-1)]
+            temp = [all((nlp.vocab.has_vector(st[0]), nlp.vocab.has_vector(st[1]))) for st in spaced_tokens]
+            if any(temp):
+                best_words = temp.index(True)
+
+            else:
+                logger.info('The token {} does not have a vector. Replacing with noise.'.format(word))
+                embedding_matrix[id, :] = torch.rand((300,))
 
     return embedding_matrix
 
@@ -246,22 +278,23 @@ def train(batch_size, epochs, hidden_dim, cutoff=None):
 
             # send through model
             model.train()
+            # Todo output predictions too for analysis
             error = model(**inputs)
 
             # backwards pass
             error.backward()
             optimizer.step()
 
-            print('model params')
-            for i in range(len(list(model.parameters()))):
-                print(i)
-                print(list(model.parameters())[i].grad)
-                print(torch.max(list(model.parameters())[i].grad))
-            print('hi')
+            # print('model params')
+            # for i in range(len(list(model.parameters()))):
+            #     print(i)
+            #     print(list(model.parameters())[i].grad)
+            #     print(torch.max(list(model.parameters())[i].grad))
+            # print('hi')
 
             logger.info('The error is {}'.format(error))
 
-    save_model(model)
+    save_model(model, embedding_matrix, hidden_dim)
 
 
 if __name__ == '__main__':
@@ -272,8 +305,14 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         filename='logging/loggingnoise_{}'.format(num_noise_logging_files))
 
+    # output device
+    logger.info('Using device: {}'.format(device))
+
+    # parser/ embeddings
+    nlp = spacy.load("en_core_web_md", disable=['ner', 'parser'])
+
     epochs = 10
     batch_size = 12
     hidden_dim = 100
 
-    train(batch_size, epochs, hidden_dim, cutoff=50)
+    train(batch_size, epochs, hidden_dim)
