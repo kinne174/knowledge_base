@@ -48,19 +48,19 @@ def compute_edge_values(input_ids, num_nodes, threshold):
     return edge_values
 
 
-def get_word_embeddings(vocabulary):
+def get_word_embeddings(args, vocabulary):
     # load in spacy model for word embeddings
     nlp = spacy.load("en_core_web_md", disable=['ner', 'parser'])
     # tokens = nlp(' '.join(vocabulary))
 
-    embeddings = torch.empty((len(vocabulary), 300))
+    embeddings = torch.empty((len(vocabulary), args.word_embedding_dim))
 
     for token_index, token in enumerate(vocabulary):
         if nlp.vocab.has_vector(token):
             embeddings[token_index, :] = torch.tensor(nlp.vocab.get_vector(token))
         else:
             logger.info('The token {} does not have a vector. Replacing with noise.'.format(token))
-            embeddings[token_index, :] = torch.rand((300,))
+            embeddings[token_index, :] = torch.rand((args.word_embedding_dim,))
 
     return embeddings
 
@@ -80,7 +80,7 @@ def build_graph(args, dataset, vocabulary):
 
     g.add_nodes(num_nodes)
 
-    embeddings = get_word_embeddings(vocabulary)
+    embeddings = get_word_embeddings(args, vocabulary)
     g.ndata['embedding'] = embeddings
 
     non_zero_edge_values = edge_values.nonzero(as_tuple=False)
