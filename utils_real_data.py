@@ -77,6 +77,7 @@ def examples_loader(args):
     subsets = ['train', 'dev', 'test']
 
     all_examples = []
+    logger_ind = 0
 
     if args.only_context:
 
@@ -88,8 +89,6 @@ def examples_loader(args):
 
                 # this will show up when running on console
                 for json_ind, line in tqdm.tqdm(enumerate(jsonl_reader), desc='Creating {} examples.'.format(subset), mininterval=1):
-                    if json_ind % 1000 == 0:
-                        logger.info('Writing example number {}'.format(json_ind))
 
                     id = line['id']
 
@@ -135,6 +134,10 @@ def examples_loader(args):
                                                        sentence_type=1,
                                                        label=label))
 
+                        if len(all_examples) >= logger_ind*100:
+                            logger.info('Writing {} example.'.format(logger_ind*100))
+                            logger_ind += 1
+
                     # if sentence_in_domain is not empty, create noise and add to examples
                     if sentences_in_domain: # this should be a list
                         for sentence_ind, sentence in enumerate(sentences_in_domain):
@@ -162,14 +165,57 @@ def examples_loader(args):
                                                            sentence_type=0,
                                                            label=label))
 
+                            if len(all_examples) >= logger_ind * 100:
+                                logger.info('Writing {} example.'.format(logger_ind * 100))
+                                logger_ind += 1
+
                     if args.cutoff is not None and len(all_examples) >= args.cutoff:
                         all_examples = all_examples[:args.cutoff]
                         break
     else:
-        # TODO
-        # search through corpus for domain words
-        # do this pretty sloppily for right now
-        raise NotImplementedError
+        data_filename = '../ARC/ARC-V1-Feb2018-2/ARC_Corpus.txt'
+        with open(data_filename, 'r') as file:
+            jsonl_reader = json_lines.reader(file)
+
+            # this will show up when running on console
+            for json_ind, line in tqdm.tqdm(enumerate(jsonl_reader), desc='Creating corpus examples.',
+                                            mininterval=1):
+
+                sentence_words = word_tokenize(line.lower())
+
+                if not any([dw in sentence_words for dw in args.domain_words]):
+                    continue
+
+                if len(sentence_words) <= 5:
+                    continue
+
+                changed_words_indices = attention_loader(sentence_words)
+
+                assert len(changed_words_indices) == len(
+                    sentence_words), 'indices length and words length do not match'
+
+                noise_sentences = noisy_sentences(sentence_words, changed_words_indices)
+
+                sentence_label_tuples = [(sentence_words, 1)] + [(ns, 0) for ns in noise_sentences]
+
+                random.shuffle(sentence_label_tuples)
+
+                all_sentences = [t[0] for t in sentence_label_tuples]
+                label, = [i for i, t in enumerate(sentence_label_tuples) if t[1] == 1]
+
+                all_examples.append(ArcExample(example_id='CORPUS_{}'.format(len(all_examples)),
+                                               sentences=all_sentences,
+                                               changed_words_indices=changed_words_indices,
+                                               sentence_type=0,
+                                               label=label))
+
+                if len(all_examples) >= logger_ind * 100:
+                    logger.info('Writing {} example.'.format(logger_ind * 100))
+                    logger_ind += 1
+
+                if args.cutoff is not None and len(all_examples) >= args.cutoff:
+                    all_examples = all_examples[:args.cutoff]
+                    break
 
     # make sure there is at least one example
     assert len(all_examples) > 1, 'No examples in the domain!'
