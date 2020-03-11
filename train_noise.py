@@ -162,19 +162,19 @@ def create_embedding_matrix(word_to_idx):
 
 
 class LSTM2MLP(nn.Module):
-    def __init__(self, embedding_matrix, hidden_dim, args):
+    def __init__(self, embedding_matrix, args):
         super(LSTM2MLP, self).__init__()
 
         self.embedding_matrix = embedding_matrix
         self.embedding_dim = embedding_matrix.shape[1]
 
-        self.hidden_dim = hidden_dim
-        self.lstm = nn.LSTM(self.embedding_dim, hidden_dim, num_layers=2, batch_first=True, bidirectional=True, dropout=0.1)
-        self.linear = nn.Sequential(nn.Linear(hidden_dim, 1),
+        self.hidden_dim = args.hidden_dim
+        self.lstm = nn.LSTM(self.embedding_dim, self.hidden_dim, num_layers=2, batch_first=True, bidirectional=True, dropout=0.1)
+        self.linear = nn.Sequential(nn.Linear(self.hidden_dim, 1),
                                     nn.Sigmoid())
         self.loss = nn.MSELoss(reduction='none')
 
-        self.args = args
+        self.device = args.device
 
     def forward(self, input_ids, labels, input_masks=None, add_special_characters=False):
         # each should be batch_size x max_length
@@ -196,7 +196,7 @@ class LSTM2MLP(nn.Module):
         # labels = labels.t()
         # input_masks = input_masks.t()
 
-        inputs = torch.empty((batch_size, max_length, self.embedding_dim)).to(self.args.device)
+        inputs = torch.empty((batch_size, max_length, self.embedding_dim)).to(self.device)
         for s_ind, sentence in enumerate(input_ids):
             for m_ind in range(max_length):
                 inputs[s_ind, m_ind, :] = self.embedding_matrix[sentence[m_ind]]
@@ -234,10 +234,10 @@ def save_model(model, embedding_matrix, hidden_dim):
         torch.save(embedding_matrix, ef)
 
 
-def load_model(hidden_dim):
+def load_model(args):
     filenames = glob.glob('saved/train_noise/*hidden*.pt')
 
-    model_filename = [f for f in filenames if f[(f.index('hidden')+len('hidden')):f.index('.pt')] == str(hidden_dim)]
+    model_filename = [f for f in filenames if f[(f.index('hidden')+len('hidden')):f.index('.pt')] == str(args.hidden_dim)]
 
     assert len(model_filename) == 1
 
@@ -246,7 +246,7 @@ def load_model(hidden_dim):
         with open(embedding_matrix_save_file, 'rb') as ef:
             embedding_matrix = torch.load(ef)
 
-    model = LSTM2MLP(embedding_matrix=embedding_matrix, hidden_dim=hidden_dim)
+    model = LSTM2MLP(embedding_matrix=embedding_matrix, args=args)
     model.load_state_dict(torch.load(model_filename[0]))
     model.eval()
 
@@ -262,7 +262,7 @@ def train(args):
     # throw embedding matrix to device
     embedding_matrix = embedding_matrix.to(args.device)
 
-    model = LSTM2MLP(embedding_matrix=embedding_matrix, hidden_dim=args.hidden_dim, args=args)
+    model = LSTM2MLP(embedding_matrix=embedding_matrix, args=args)
 
     # throw model to device
     model.to(args.device)
