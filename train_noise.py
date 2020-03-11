@@ -10,6 +10,7 @@ from tqdm import trange, tqdm
 import torch.optim as optim
 import nltk
 from nltk.corpus import stopwords
+import getpass
 
 #logging
 logger = logging.getLogger(__name__)
@@ -22,7 +23,13 @@ def get_device():
 
 device = get_device()
 
-stop_words =  set(stopwords.words('english'))
+stop_words = set(stopwords.words('english'))
+
+
+def set_seed(args):
+    torch.manual_seed(args.seed)
+    # if args.n_gpu > 0:
+    #     torch.cuda.manual_seed_all(args.seed)
 
 def get_words(cutoff):
     data_filename = '../ARC/essential_data/turkerSalientTermsWithOmnibus-v3.tsv'
@@ -251,13 +258,13 @@ def load_model(hidden_dim):
     return model
 
 
-def train(batch_size, epochs, hidden_dim, cutoff=None):
+def train(args):
 
-    all_token_list, all_input_masks, all_labels_list, word_to_idx = get_words(cutoff)
+    all_token_list, all_input_masks, all_labels_list, word_to_idx = get_words(args.cutoff)
 
     embedding_matrix = create_embedding_matrix(word_to_idx)
 
-    model = LSTM2MLP(embedding_matrix = embedding_matrix, hidden_dim=hidden_dim)
+    model = LSTM2MLP(embedding_matrix = embedding_matrix, hidden_dim=args.hidden_dim)
     # throw model to device
     model.to(device)
 
@@ -271,15 +278,15 @@ def train(batch_size, epochs, hidden_dim, cutoff=None):
     dataset = TensorDataset(tokens_tensor, input_masks_tensor, labels_tensor)
 
     train_sampler = RandomSampler(dataset, replacement=False)
-    train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=batch_size)
+    train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=args.batch_size)
 
-    train_iterator = trange(int(epochs), desc="Epoch")
+    train_iterator = trange(int(args.epochs), desc="Epoch")
     # start training
     logger.info('Starting to train!')
     logger.info('There are {} examples.'.format(len(dataset)))
 
     for epoch, _ in enumerate(train_iterator):
-        epoch_iterator = tqdm(train_dataloader, desc="Iteration, batch size {}".format(batch_size))
+        epoch_iterator = tqdm(train_dataloader, desc="Iteration, batch size {}".format(args.batch_size))
         for iteration, batch in enumerate(epoch_iterator):
 
             model.zero_grad()
@@ -293,7 +300,6 @@ def train(batch_size, epochs, hidden_dim, cutoff=None):
 
             # send through model
             model.train()
-            # Todo output predictions too for analysis
             _, error = model(**inputs)
 
             # backwards pass
@@ -309,10 +315,42 @@ def train(batch_size, epochs, hidden_dim, cutoff=None):
 
             logger.info('The error is {}'.format(error))
 
-    save_model(model, embedding_matrix, hidden_dim)
+    save_model(model, embedding_matrix, args.hidden_dim)
 
 
 if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    if not getpass.getuser() == 'Mitch':
+
+        # Required
+        parser.add_argument('--epochs', default=None, type=int, required=True,
+                            help='Number of epochs to train model')
+        parser.add_argument('--batch_size', default=None, type=int, required=True,
+                            help='Batch size of each iteration')
+        parser.add_argument('--hidden_dim', default=None, type=int, required=True,
+                            help='Dimension size of hidden layer')
+
+        # Optional
+        parser.add_argument('--cutoff', default=None, type=int,
+                            help='Cutoff number of examples when testing')
+        parser.add_argument('--seed', default=1234, type=int,
+                            help='Seed for randomization')
+
+        args = parser.parse_args()
+    else:
+        class Args(object):
+            def __init__(self):
+                self.epochs = 10
+                self.batch_size = 12
+                self.hidden_dim = 100
+
+                self.cutoff = None
+                self.seed = 1234
+        args = Args()
+
     # Setup logging
     num_noise_logging_files = len(glob.glob('logging/loggingnoise_*'))
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -323,11 +361,10 @@ if __name__ == '__main__':
     # output device
     logger.info('Using device: {}'.format(device))
 
+    # set seed
+    set_seed(args)
+
     # parser/ embeddings
     nlp = spacy.load("en_core_web_md", disable=['ner', 'parser'])
 
-    epochs = 10
-    batch_size = 12
-    hidden_dim = 100
-
-    train(batch_size, epochs, hidden_dim)
+    train(args)
