@@ -162,7 +162,7 @@ def create_embedding_matrix(word_to_idx):
 
 
 class LSTM2MLP(nn.Module):
-    def __init__(self, embedding_matrix, hidden_dim):
+    def __init__(self, embedding_matrix, hidden_dim, args):
         super(LSTM2MLP, self).__init__()
 
         self.embedding_matrix = embedding_matrix
@@ -173,6 +173,8 @@ class LSTM2MLP(nn.Module):
         self.linear = nn.Sequential(nn.Linear(hidden_dim, 1),
                                     nn.Sigmoid())
         self.loss = nn.MSELoss(reduction='none')
+
+        self.args = args
 
     def forward(self, input_ids, labels, input_masks=None, add_special_characters=False):
         # each should be batch_size x max_length
@@ -194,7 +196,7 @@ class LSTM2MLP(nn.Module):
         # labels = labels.t()
         # input_masks = input_masks.t()
 
-        inputs = torch.empty((batch_size, max_length, self.embedding_dim))
+        inputs = torch.empty((batch_size, max_length, self.embedding_dim)).to(self.args.device)
         for s_ind, sentence in enumerate(input_ids):
             for m_ind in range(max_length):
                 inputs[s_ind, m_ind, :] = self.embedding_matrix[sentence[m_ind]]
@@ -260,7 +262,7 @@ def train(args):
     # throw embedding matrix to device
     embedding_matrix = embedding_matrix.to(args.device)
 
-    model = LSTM2MLP(embedding_matrix=embedding_matrix, hidden_dim=args.hidden_dim)
+    model = LSTM2MLP(embedding_matrix=embedding_matrix, hidden_dim=args.hidden_dim, args=args)
 
     # throw model to device
     model.to(args.device)
