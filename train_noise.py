@@ -209,7 +209,7 @@ class LSTM2MLP(nn.Module):
         self.embedding_matrix = embedding_matrix
         self.embedding_dim = embedding_matrix.shape[1]
 
-        self.hidden_dim = args.hidden_dim
+        self.hidden_dim = args.essential_terms_hidden_dim
         self.lstm = nn.LSTM(self.embedding_dim, self.hidden_dim, num_layers=2, batch_first=True, bidirectional=True, dropout=0.1)
         self.linear = nn.Sequential(nn.Linear(self.hidden_dim, 1),
                                     nn.Sigmoid())
@@ -292,7 +292,7 @@ def save_model(model, embedding_matrix, hidden_dim, word_to_idx):
 def load_model(args):
     filenames = glob.glob('saved/train_noise/*hidden*.pt')
 
-    model_filename = [f for f in filenames if f[(f.index('hidden')+len('hidden')):f.index('.pt')] == str(args.hidden_dim)]
+    model_filename = [f for f in filenames if f[(f.index('hidden')+len('hidden')):f.index('.pt')] == str(args.essential_terms_hidden_dim)]
 
     assert len(model_filename) == 1
 
@@ -380,7 +380,7 @@ def train(args):
 
             logger.info('The error is {}'.format(error))
 
-    save_model(model, embedding_matrix, args.hidden_dim, word_to_idx)
+    save_model(model, embedding_matrix, args.essential_terms_hidden_dim, word_to_idx)
 
 
 if __name__ == '__main__':
@@ -395,7 +395,7 @@ if __name__ == '__main__':
                             help='Number of epochs to train model')
         parser.add_argument('--batch_size', default=None, type=int, required=True,
                             help='Batch size of each iteration')
-        parser.add_argument('--hidden_dim', default=None, type=int, required=True,
+        parser.add_argument('--essential_terms_hidden_dim', default=None, type=int, required=True,
                             help='Dimension size of hidden layer')
 
         # Optional
@@ -410,7 +410,7 @@ if __name__ == '__main__':
             def __init__(self):
                 self.epochs = 10
                 self.batch_size = 12
-                self.hidden_dim = 100
+                self.essential_terms_hidden_dim = 100
 
                 self.cutoff = None
                 self.seed = 1234
