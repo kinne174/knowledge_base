@@ -155,15 +155,10 @@ def create_embedding_matrix(word_to_idx):
     for word, id in word_to_idx.items():
         if nlp.vocab.has_vector(word):
             embedding_matrix[id, :] = torch.tensor(nlp.vocab.get_vector(word))
-        else:
-            spaced_tokens = [(word[:i], word[i:]) for i in range(1, len(word)-1)]
-            temp = [all((nlp.vocab.has_vector(st[0]), nlp.vocab.has_vector(st[1]))) for st in spaced_tokens]
-            if any(temp):
-                best_words = temp.index(True)
 
-            else:
-                logger.info('The token {} does not have a vector. Replacing with noise.'.format(word))
-                embedding_matrix[id, :] = torch.rand((300,))
+        else:
+            logger.info('The token {} does not have a vector. Replacing with noise.'.format(word))
+            embedding_matrix[id, :] = torch.rand((300,))
 
     return embedding_matrix
 
@@ -264,7 +259,8 @@ def train(args):
 
     embedding_matrix = create_embedding_matrix(word_to_idx)
 
-    model = LSTM2MLP(embedding_matrix = embedding_matrix, hidden_dim=args.hidden_dim)
+    model = LSTM2MLP(embedding_matrix=embedding_matrix, hidden_dim=args.hidden_dim)
+
     # throw model to device
     model.to(device)
 
@@ -281,6 +277,7 @@ def train(args):
     train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=args.batch_size)
 
     train_iterator = trange(int(args.epochs), desc="Epoch")
+
     # start training
     logger.info('Starting to train!')
     logger.info('There are {} examples.'.format(len(dataset)))
