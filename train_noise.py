@@ -272,7 +272,7 @@ class LSTM2MLP(nn.Module):
 
 # save the model parameters, embedding matrix, and translation dict
 def save_model(model, embedding_matrix, hidden_dim, word_to_idx):
-    model_save_file = 'saved/train_noise/essential_terms_hidden{}.pt'.format(hidden_dim)
+    model_save_file = 'saved/train_noise/essential_terms_model_parameters_hidden{}.pt'.format(hidden_dim)
 
     with open(model_save_file, 'wb') as mf:
         torch.save(model.state_dict(), mf)
@@ -308,7 +308,7 @@ def load_model(args):
     word_to_idx_save_file = 'saved/train_noise/word_to_idx.py'
 
     with open(word_to_idx_save_file, 'rb') as wf:
-        word_to_idx = torch.load(word_to_idx_save_file)
+        word_to_idx = torch.load(wf)
 
     return model, word_to_idx
 
