@@ -257,6 +257,9 @@ def train(args):
 
     embedding_matrix = create_embedding_matrix(word_to_idx)
 
+    # throw embedding matrix to device
+    embedding_matrix = embedding_matrix.to(args.device)
+
     model = LSTM2MLP(embedding_matrix=embedding_matrix, hidden_dim=args.hidden_dim)
 
     # throw model to device
