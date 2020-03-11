@@ -21,8 +21,6 @@ def get_device():
     else:
         return torch.device('cpu')
 
-device = get_device()
-
 stop_words = set(stopwords.words('english'))
 
 
@@ -262,7 +260,7 @@ def train(args):
     model = LSTM2MLP(embedding_matrix=embedding_matrix, hidden_dim=args.hidden_dim)
 
     # throw model to device
-    model.to(device)
+    model.to(args.device)
 
     # intiailize optimizer
     optimizer = optim.Adam(params=model.parameters())
@@ -289,7 +287,7 @@ def train(args):
             model.zero_grad()
 
             # get batch
-            batch = tuple(t.to(device) for t in batch)
+            batch = tuple(t.to(args.device) for t in batch)
             inputs = {'input_ids': batch[0],
                       'input_masks': batch[1],
                       'labels': batch[2],
@@ -355,8 +353,11 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         filename='logging/loggingnoise_{}'.format(num_noise_logging_files))
 
+    #get device
+    args.device = get_device()
+
     # output device
-    logger.info('Using device: {}'.format(device))
+    logger.info('Using device: {}'.format(args.device))
 
     # set seed
     set_seed(args)
