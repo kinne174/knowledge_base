@@ -139,19 +139,18 @@ def train(args, dataset, knowledge_base, model, optimizer):
             error.backward()
             optimizer.step()
 
-            print('model params')
-            for i in range(len(list(model.parameters()))):
-                print(i)
-                print(list(model.parameters())[i].grad)
-                print(torch.max(list(model.parameters())[i].grad))
-            print('hi')
+            # print('model params')
+            # for i in range(len(list(model.parameters()))):
+            #     print(i)
+            #     print(list(model.parameters())[i].grad)
+            #     print(torch.max(list(model.parameters())[i].grad))
 
             logger.info('The error is {}'.format(error))
 
-            num_training_seen += inputs['labels'].shape[0]
-            num_training_correct += sum([inputs['labels'][i, p] for i, p in zip(range(inputs['labels'].shape[0]), predictions)])
+            num_training_seen += int(inputs['labels'].shape[0])
+            num_training_correct += int(sum([inputs['labels'][i, p].item() for i, p in zip(range(inputs['labels'].shape[0]), predictions)]))
             logger.info('The training total correct is {} out of {} for a percentage of {}'.format(
-                num_training_correct, num_training_seen, round(num_training_correct/num_training_seen,3)))
+                num_training_correct, num_training_seen, round(num_training_correct/num_training_seen, 2)))
 
             # TODO depending on args do evaluation
 
@@ -162,7 +161,6 @@ def evaluate(args):
 
 def main():
     parser = argparse.ArgumentParser()
-
 
     if not getpass.getuser() == 'Mitch':
         args = parser.parse_args()
@@ -187,11 +185,13 @@ def main():
                 self.domain_words = ['moon', 'earth']
                 self.only_context = True
                 self.pmi_threshold = 0.4
-                self.common_word_threshold = 3
+                self.common_word_threshold = 1
                 self.lstm_hidden_dim = 25
-                self.edge_parameter = 0.5
+                self.edge_parameter = 0.1
                 self.word_embedding_dim = 300
                 self.mlp_hidden_dim = 100
+                self.essential_terms_hidden_dim = 100
+                self.attention_window_size = 3
 
 
         args = Args()
@@ -209,6 +209,9 @@ def main():
         raise Exception('Cache directory does not exist here ({})'.format(args.cache_dir))
     if not os.path.exists(args.data_dir):
         raise Exception('Data directory does not exist here ({})'.format(args.data_dir))
+
+    assert 0 <= np.sqrt(args.edge_parameter/args.pmi_threshold) <= 1, "Edge parameter and pmi threshold won't work together"
+    assert 0 <= np.sqrt(args.edge_parameter) <= 1, "Edge parameter won't work, needs to be less"
 
     # within output and saved folders create a folder with domain words to keep output and saved objects
     folder_name = '-'.join(args.domain_words)
