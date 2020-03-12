@@ -57,19 +57,72 @@ def select_field(features, field):
         for feature in features
     ]
 
+def load_and_cache_evaluation(args, subset):
 
-def load_and_cache_(args):
+    tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict_{}.py'.format(args.tokenizer_name))
+    assert os.path.exists(tokenizer_filename), 'Cannot find tokenizer filename, this must exist to evaluate'
+    vocabulary_filename = os.path.join(args.cache_dir, 'vocabulary_{}.py'.format(args.tokenizer_name))
+    assert os.path.exists(vocabulary_filename), 'Cannot find vocabulary filename, this must exist to evaluate'
+
+    my_tokenizer = MyTokenizer.load_tokenizer(args)
+
+    feautres_filename = os.path.join(args.cache_dir, 'features_{}'.format(subset))
+    if os.path.exists(feautres_filename):
+        logger.info('Loading {} features'.format(subset))
+        features = torch.load(feautres_filename)
+    else:
+        logger.info('Could not find features file, creating {} features'.format(subset))
+        examples = examples_loader(args, evaluate_subset=subset)
+        features = features_loader(args, my_tokenizer, examples)
+
+        logger.info('Saving {} features'.format(subset))
+        torch.save(features, feautres_filename)
+
+    all_input_ids = torch.tensor(select_field(features, 'input_ids'), dtype=torch.long)
+    all_input_mask = torch.tensor(select_field(features, 'input_mask'), dtype=torch.long)
+    all_sentence_type = torch.tensor([f.sentence_type for f in features], dtype=torch.long).unsqueeze(1)
+    all_labels = torch.tensor(label_map([f.label for f in features], num_choices=4), dtype=torch.float)
+
+    assert all_sentence_type == torch.ones_like(all_sentence_type)
+
+    dataset = TensorDataset(all_input_ids, all_input_mask, all_labels)
+
+    cutoff_str = '' if args.cutoff is None else '_cutoff{}'.format(args.cutoff)
+    graph_filename = os.path.join(args.cache_dir, 'graph{}.py'.format(cutoff_str))
+    assert os.path.exists(graph_filename)
+
+    logger.info('Evaluation: Loading graph')
+    knowledge_base = load_graph(args)
+
+    # load model
+    model_filenames = glob.glob(os.path.join(args.cache_dir, 'model_parameters_checkpoint_*.py'))
+    assert len(model_filenames) > 0, 'No model parameters found'
+    index_ = len(model_filenames[0]) - model_filenames[0][::-1].index('_')
+    indicesdot = [mf.index('.') for mf in model_filenames]
+    checkpoints = [mf[index_:idot] for mf, idot in zip(model_filenames, indicesdot)]
+    max_checkpoint = max(checkpoints)
+    model_filename = os.path.join(args.cache_dir, 'model_parameters_checkpoint_{}.py'.format(max_checkpoint))
+
+    logger.info('Loading model using checkpoint {}'.format(max_checkpoint))
+    model = GraphBlock(args, knowledge_base)
+    model.load_state_dict(torch.load(model_filename))
+    model.eval()
+
+    return dataset, model
+
+
+def load_and_cache_training(args):
     my_tokenizer = MyTokenizer.load_tokenizer(args)
 
     only_context_str = '_ONLYCONTEXT' if args.only_context else ''
     cutoff_str = '' if args.cutoff is None else '_cutoff{}'.format(args.cutoff)
 
-    features_filename = os.path.join(args.cache_dir, 'features_{}{}'.format(only_context_str, cutoff_str))
+    features_filename = os.path.join(args.cache_dir, 'features_{}{}{}'.format(only_context_str, cutoff_str, 'train'))
     # tokenizer should already be loaded but this is just making damn sure
     tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict_{}.py'.format(args.tokenizer_name))
-    vocabulary_file = os.path.join(args.cache_dir, 'vocabulary_{}.py'.format(args.tokenizer_name))
+    vocabulary_filename = os.path.join(args.cache_dir, 'vocabulary_{}.py'.format(args.tokenizer_name))
 
-    if os.path.exists(features_filename) and os.path.exists(tokenizer_filename) and os.path.exists(vocabulary_file) and not args.overwrite_cache_dir:
+    if os.path.exists(features_filename) and os.path.exists(tokenizer_filename) and os.path.exists(vocabulary_filename) and not args.overwrite_cache_dir:
         logger.info('Loading features from ({})'.format(features_filename))
         features = torch.load(features_filename)
     else:
@@ -102,7 +155,7 @@ def load_and_cache_(args):
     return my_tokenizer, dataset, knowledge_base
 
 
-def train(args, dataset, knowledge_base, model, optimizer):
+def train(args, dataset, model, optimizer):
 
     # set up dataset in a sampler
     # use pytorch data loaders to cycle through the data,
@@ -111,6 +164,7 @@ def train(args, dataset, knowledge_base, model, optimizer):
 
     num_training_correct = 0
     num_training_seen = 0
+    global_step = 0
 
     train_iterator = trange(int(args.epochs), desc="Epoch")
     # start training
@@ -133,7 +187,7 @@ def train(args, dataset, knowledge_base, model, optimizer):
 
             # send through model
             model.train()
-            error, predictions = model(knowledge_base, training=True, **inputs)
+            error, predictions = model(training=True, **inputs)
 
             # backwards pass
             error.backward()
@@ -152,11 +206,56 @@ def train(args, dataset, knowledge_base, model, optimizer):
             logger.info('The training total correct is {} out of {} for a percentage of {}'.format(
                 num_training_correct, num_training_seen, round(num_training_correct/num_training_seen, 2)))
 
-            # TODO depending on args do evaluation
+            if global_step is not 0 and global_step % args.global_save_step == 0:
+                assert save_model_params(args=args, checkpoint=global_step, model=model) == -1
+
+                if args.evaluate_during_training:
+                    assert evaluate(args, subset='dev') == -1
+
+            global_step += 1
 
 
-def evaluate(args):
-    pass
+def evaluate(args, subset):
+    assert subset in ['dev', 'test'], 'subset must be one of "test" or "dev"'
+
+    # get questions from appropriate subset
+    dataset, model = load_and_cache_evaluation(args, subset)
+
+    # set up dataset in a sampler
+    # use pytorch data loaders to cycle through the data,
+    train_sampler = SequentialSampler(dataset)
+    train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=len(dataset))
+
+    logging.info('Beggining to evaluate {} subset'.format(subset))
+    # for batch in train_dataloader: # todo possibly can replace this depending on what train_dataloader is, maybe just use next??
+    batch = next(train_dataloader)
+    # should be whole thing
+
+    # get batch
+    batch = tuple(t.to(args.device) for t in batch)
+    inputs = {'input_ids': batch[0],
+              'input_mask': batch[1],
+              'labels': None,
+              }
+    labels = batch[2]
+
+    _, predictions = model(training=False, **inputs)
+
+    num_training_seen = int(labels.shape[0])
+    num_training_correct = int(
+        sum([labels[i, p].item() for i, p in zip(range(labels.shape[0]), predictions)]))
+    logger.info('In {}: The number total correct is {} out of {} for a percentage of {}'.format(subset,
+        num_training_correct, num_training_seen, round(num_training_correct / num_training_seen, 2)))
+
+    return -1
+
+def save_model_params(args, checkpoint, model):
+    model_save_file = os.path.join(args.cache_dir, 'model_parameters_checkpoint_{}.py'.format(checkpoint))
+
+    with open(model_save_file, 'wb') as mf:
+        torch.save(model.state_dict(), mf)
+
+    return -1
 
 
 def main():
@@ -215,6 +314,16 @@ def main():
                             help='This probably will not change, embedding dimension of word vectors')
         parser.add_argument('--attention_window_size', default=3, type=int,
                             help='Number of words to replace in sentences with negative sampling')
+        parser.add_argument('--global_save_step', default=None, type=int,
+                            help='Save model parameters when modulus this step is zero')
+        parser.add_argument('--evaluate_during_training', action='store_true',
+                            help='While saving perform evaluation of model on dev set')
+        parser.add_argument('--train', action='store_true',
+                            help='Perform training of model')
+        parser.add_argument('--evaluate_dev', action='store_true',
+                            help='Evaluate latest model on dev set')
+        parser.add_argument('--evaluate_test', action='store_true',
+                            help='Evaluate latest model on test set')
 
         args = parser.parse_args()
     else:
@@ -234,6 +343,11 @@ def main():
                 self.no_gpu = True
                 self.batch_size = 2
                 self.epochs = 3
+                self.global_save_step = 10
+                self.evaluate_during_training = True
+                self.train = True
+                self.evaluate_dev = False
+                self.evaluate_test = False
 
                 self.domain_words = ['moon', 'earth']
                 self.only_context = True
@@ -301,25 +415,28 @@ def main():
     # Set seed
     set_seed(args)
 
-    # load the examples and features, build the tokenizer if not already implemented, and the knowledge base
-    my_tokenizer, dataset, knowledge_base = load_and_cache_(args)
+    if args.train:
+        # load the examples and features, build the tokenizer if not already implemented, and the knowledge base
+        my_tokenizer, dataset, knowledge_base = load_and_cache_training(args)
 
-    # Load models or randomly initialize, everything after the randomization should be doable in a single function
-    model = GraphBlock(args)
+        # Load models or randomly initialize, everything after the randomization should be doable in a single function
+        model = GraphBlock(args, knowledge_base)
 
-    # throw model to device
-    model.to(args.device)
+        # throw model to device
+        model.to(args.device)
 
-    # intiailize optimizer
-    optimizer = optim.Adam(params=model.parameters())
+        # intiailize optimizer
+        optimizer = optim.Adam(params=model.parameters())
 
-    # do training here
-    train(args, dataset, knowledge_base, model, optimizer)
+        # do training here
+        train(args, dataset, model, optimizer)
 
-    # do evaluation here
-    # TODO better logic for evaluation
+    # do evaluation here for dev and test
+    if args.evaluate_dev:
+        evaluate(args, subset='dev')
 
-    # do results here
+    if args.evaluate_test:
+        evaluate(args, subset='test')
 
 
 if __name__ == '__main__':

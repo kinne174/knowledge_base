@@ -13,11 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 class GraphBlock(nn.Module):
-    def __init__(self, args,):
+    def __init__(self, args, knowledge_base):
         super(GraphBlock, self).__init__()
 
         self.args = args # the input from user
         # self.training = training # a bool if the model is training or not
+
+        self.knowledge_base = knowledge_base
 
         self.linear1 = nn.Linear(in_features=args.word_embedding_dim, out_features=args.mlp_hidden_dim)
         self.lstm = nn.LSTM(args.mlp_hidden_dim, args.lstm_hidden_dim)
@@ -25,9 +27,9 @@ class GraphBlock(nn.Module):
 
         self.loss_function = nn.BCEWithLogitsLoss()
 
-    def forward(self, knowledge_base, training, **inputs):
+    def forward(self, training, **inputs):
         '''
-
+        # TODO make sure all things that need to be thrown to device are
         :param knowledge_base: DGL graph that needs to be subsetted based on the inputs
         :param **inputs: 'input_ids': batch size x 4 x args.max_length , 'label' : batch size * 4 - one hot vector
         :return: error of predicted versus real labels
@@ -37,7 +39,13 @@ class GraphBlock(nn.Module):
         input_mask = inputs['input_mask']
         labels = inputs['labels']
 
-        batch_size = labels.shape[0]
+        # for evaluation assume they come in one at a time
+
+        batch_size = input_ids.shape[0]
+
+        # if evaluating, don't care about this
+        if labels is None:
+            labels = torch.zeros((batch_size, 4), dtype=torch.float)
 
         all_answer_scores = torch.empty((batch_size, 4))
 
@@ -47,7 +55,7 @@ class GraphBlock(nn.Module):
             for i in range(4):
                 # subset graph based on current input, grab nodes of inputs and first neighbor nodes and all corresponding edges, create a copy so can change edges/ nodes
                 current_input_ids = input_ids[b, i, :torch.sum(input_mask[b, i, :])]
-                subset_knowledge_base, ids_mapping = self.subset_graph(knowledge_base, current_input_ids)
+                subset_knowledge_base, ids_mapping = self.subset_graph(self.knowledge_base, current_input_ids)
 
                 # if training cast edges to {0, 1} in a bernoulli fashion based on word2vec function, else return as is
                 subset_knowledge_base = self.cast_edges(subset_knowledge_base, training)

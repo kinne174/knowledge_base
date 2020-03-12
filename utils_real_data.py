@@ -30,7 +30,7 @@ class ArcExample(object):
         self.sentence_type = sentence_type
 
 
-def domain_finder(args, question, contexts, answers):
+def domain_finder(args, question, contexts, answers, evaluating):
 
     question_words = word_tokenize(question.lower())
     question_in_domain = any([dw in question_words for dw in args.domain_words])
@@ -44,14 +44,15 @@ def domain_finder(args, question, contexts, answers):
                 break
 
     all_context_sentences_in_domain = []
-    for context in contexts:
-        context_sentences = sent_tokenize(context)
+    if not evaluating:
+        for context in contexts:
+            context_sentences = sent_tokenize(context)
 
-        for context_sentence in context_sentences:
-            context_words = word_tokenize(context_sentence.lower())
+            for context_sentence in context_sentences:
+                context_words = word_tokenize(context_sentence.lower())
 
-            if any([dw in context_words for dw in args.domain_words]):
-                all_context_sentences_in_domain.append(context_sentence.lower())
+                if any([dw in context_words for dw in args.domain_words]):
+                    all_context_sentences_in_domain.append(context_sentence.lower())
 
     return question_in_domain, all_context_sentences_in_domain
 
@@ -92,7 +93,7 @@ def attention_loader(args, words, model, word_to_idx, counter):
     return changed_inds, noise_sentences
 
 
-def examples_loader(args):
+def examples_loader(args, evaluate_subset=None):
     # returns an object of type ArcExample similar to hugging face transformers
 
     # bad ids, each has at least one answer that does not contain any context
@@ -100,6 +101,12 @@ def examples_loader(args):
     bad_ids = ['OBQA_9-737', 'OBQA_45', 'OBQA_750', 'OBQA_7-423', 'OBQA_619', 'OBQA_9-778', 'OBQA_10-201', 'OBQA_10-791', 'OBQA_10-1138', 'OBQA_12-717', 'OBQA_13-129', 'OBQA_13-468', 'OBQA_13-957', 'OBQA_14-10', 'OBQA_14-949', 'OBQA_14-1140', 'OBQA_14-1274']
 
     subsets = ['train', 'dev', 'test']
+    evaluating = False
+
+    if evaluate_subset is not None:
+        assert evaluate_subset in ['dev', 'test']
+        evaluating = True
+        subsets = [evaluate_subset]
 
     all_examples = []
     logger_ind = 0
@@ -107,7 +114,7 @@ def examples_loader(args):
     # load the model and translation dict and counter
     model, word_to_idx, counter = load_model(args)
 
-    if args.only_context:
+    if args.only_context or evaluating:
 
         for subset in subsets:
 
@@ -146,10 +153,11 @@ def examples_loader(args):
                     contexts = [c['para'] for c in line['question']['choices']]
                     answer_texts = [c['text'] for c in line['question']['choices']]
 
-                    question_in_domain, sentences_in_domain = domain_finder(args, question_text, contexts, answer_texts)
+                    question_in_domain, sentences_in_domain = domain_finder(args, question_text, contexts, answer_texts, evaluating)
 
                     # if question is in the domain then create an ArcExample and add it to examples
-                    if question_in_domain: # this should be a bool
+                    # question_in_domain should be a bool
+                    if question_in_domain and (subset == 'train' or evaluating):
                         question_answer_sentences = []
                         question_answer_indices = []
                         for answer in answer_texts:
@@ -168,7 +176,8 @@ def examples_loader(args):
                             logger_ind += 1
 
                     # if sentence_in_domain is not empty, create noise and add to examples
-                    if sentences_in_domain: # this should be a list
+                    # sentences_in_domain should be a list
+                    if sentences_in_domain and not evaluating:
                         for sentence_ind, sentence in enumerate(sentences_in_domain):
                             sentence_words = word_tokenize(sentence)
                             sentence_words = [w for w in sentence_words if w.isalnum()]
