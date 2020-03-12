@@ -1,24 +1,31 @@
 import os
+import nltk
 from nltk import word_tokenize, sent_tokenize
-from nltk.corpus import brown
+from nltk.corpus import brown, stopwords
 import random
 import json_lines
 import tqdm
 import logging
+import torch
+from operator import itemgetter
+from itertools import accumulate
+import codecs
+
+from train_noise import load_model
 
 logger = logging.getLogger(__name__)
 
-random_words = set(brown.words(categories='news'))
+# random_words = set(brown.words(categories='news'))
+
+stop_words = set(stopwords.words('english'))
 
 
 class ArcExample(object):
 
     def __init__(self, example_id, sentences, sentence_type, changed_words_indices, label):
         self.example_id = example_id
-        self.sentence_features = [{
-            'sentence': s,
-            'changed_word_indices': cwi,
-        } for s, cwi in zip(sentences, changed_words_indices)]
+        self.sentences = [s for s in sentences]
+        self.changed_words_indices = changed_words_indices
         self.label = label
         self.sentence_type = sentence_type
 
@@ -44,27 +51,45 @@ def domain_finder(args, question, contexts, answers):
             context_words = word_tokenize(context_sentence.lower())
 
             if any([dw in context_words for dw in args.domain_words]):
-                all_context_sentences_in_domain.append(context_sentence)
+                all_context_sentences_in_domain.append(context_sentence.lower())
 
     return question_in_domain, all_context_sentences_in_domain
 
 
-def attention_loader(words):
-    # TODO make this based on that one paper with essential learning
-    # return 1 change index and then three noisy sentences
-    center_index = random.randint(1, len(words)-2)
-    changed_inds = [1 if (center_index - 1) <= i <= (center_index + 2) else 0 for i in range(len(words))]
-    return changed_inds
+def attention_loader(args, words, model, word_to_idx, counter):
 
+    tokens = []
+    for word_ind, word in enumerate(words):
+        if word in word_to_idx:
+            tokens.append(word_to_idx[word])
+        else:
+            tokens.append(0)
 
-def noisy_sentences(words, changed_indices):
-    # TODO change this to sample something intelligent
+    tokens = torch.tensor(tokens, dtype=torch.long).unsqueeze(0)
+
+    predictions, _ = model(input_ids=tokens, add_special_tokens=True)
+
+    assert tokens.shape == predictions.shape
+
+    predictions = predictions.squeeze()
+
+    window_size = args.attention_window_size
+
+    changed_inds_and_scores = [(list(range(i, i+window_size)), torch.mean(predictions[i:(i+window_size)]).item()) for i in range(predictions.shape[0] - window_size + 1)]
+
+    best_inds = max(changed_inds_and_scores, key=itemgetter(1))[0]
+
+    changed_inds = [1 if i in best_inds else 0 for i in range(len(words))]
+
     noise_sentences = []
+    random_words_weights = [(w, counter[w]) for w in word_to_idx.keys() if w not in stop_words and word_to_idx[w] > 2]
+    random_words, weights = map(list, zip(*random_words_weights))
+    cum_weights = list(accumulate(weights))
     for _ in range(3):
-        noise_words = [w if ci == 0 else random.sample(random_words, 1)[0].lower() for w, ci in zip(words, changed_indices)]
+        noise_words = [w if ci == 0 else random.choices(random_words, cum_weights=cum_weights, k=1)[0] for w, ci in zip(words, changed_inds)]
         noise_sentences.append(' '.join(noise_words))
 
-    return noise_sentences
+    return changed_inds, noise_sentences
 
 
 def examples_loader(args):
@@ -79,6 +104,9 @@ def examples_loader(args):
     all_examples = []
     logger_ind = 0
 
+    # load the model and translation dict and counter
+    model, word_to_idx, counter = load_model(args)
+
     if args.only_context:
 
         for subset in subsets:
@@ -88,7 +116,7 @@ def examples_loader(args):
                 jsonl_reader = json_lines.reader(file)
 
                 # this will show up when running on console
-                for json_ind, line in tqdm.tqdm(enumerate(jsonl_reader), desc='Creating {} examples.'.format(subset), mininterval=1):
+                for json_ind, line in tqdm.tqdm(enumerate(jsonl_reader), desc='Searching {} subset for examples.'.format(subset), mininterval=1):
 
                     id = line['id']
 
@@ -125,7 +153,8 @@ def examples_loader(args):
                         question_answer_sentences = []
                         question_answer_indices = []
                         for answer in answer_texts:
-                            question_answer_sentences.append(' '.join([question_text, answer]))
+                            question_answer_text = ' '.join([question_text, answer])
+                            question_answer_sentences.append(question_answer_text)
                             question_answer_indices.append([0]*len(' '.split(question_text)) + [1]*len(' '.split(answer)))
 
                         all_examples.append(ArcExample(example_id=id,
@@ -142,15 +171,17 @@ def examples_loader(args):
                     if sentences_in_domain: # this should be a list
                         for sentence_ind, sentence in enumerate(sentences_in_domain):
                             sentence_words = word_tokenize(sentence)
+                            sentence_words = [w for w in sentence_words if w.isalnum()]
+                            sentence = ' '.join(sentence_words)
 
                             if len(sentence_words) <= 5:
                                 continue
 
-                            changed_words_indices = attention_loader(sentence_words)
+                            changed_words_indices, noise_sentences = attention_loader(args, sentence_words, model, word_to_idx, counter)
 
                             assert len(changed_words_indices) == len(sentence_words), 'indices length and words length do not match'
 
-                            noise_sentences = noisy_sentences(sentence_words, changed_words_indices)
+                            # noise_sentences = noisy_sentences(sentence_words, changed_words_indices)
 
                             sentence_label_tuples = [(sentence, 1)] + [(ns, 0) for ns in noise_sentences]
 
@@ -174,14 +205,14 @@ def examples_loader(args):
                         break
     else:
         data_filename = '../ARC/ARC-V1-Feb2018-2/ARC_Corpus.txt'
-        with open(data_filename, 'r') as file:
-            jsonl_reader = json_lines.reader(file)
+        with codecs.open(data_filename, 'r', encoding='utf-8', errors='ignore') as corpus:
 
             # this will show up when running on console
-            for json_ind, line in tqdm.tqdm(enumerate(jsonl_reader), desc='Creating corpus examples.',
-                                            mininterval=1):
+            for line in tqdm.tqdm(corpus, desc='Searching corpus for examples.', mininterval=1):
 
                 sentence_words = word_tokenize(line.lower())
+                sentence_words = [w for w in sentence_words if w.isalnum()]
+                sentence = ' '.join(sentence_words)
 
                 if not any([dw in sentence_words for dw in args.domain_words]):
                     continue
@@ -189,14 +220,14 @@ def examples_loader(args):
                 if len(sentence_words) <= 5:
                     continue
 
-                changed_words_indices = attention_loader(sentence_words)
+                changed_words_indices, noise_sentences = attention_loader(args, sentence_words, model, word_to_idx, counter)
 
                 assert len(changed_words_indices) == len(
                     sentence_words), 'indices length and words length do not match'
 
-                noise_sentences = noisy_sentences(sentence_words, changed_words_indices)
+                # noise_sentences = noisy_sentences(sentence_words, changed_words_indices)
 
-                sentence_label_tuples = [(sentence_words, 1)] + [(ns, 0) for ns in noise_sentences]
+                sentence_label_tuples = [(sentence, 1)] + [(ns, 0) for ns in noise_sentences]
 
                 random.shuffle(sentence_label_tuples)
 
