@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import logging
 import numpy as np
+import math
 import dgl
 import dgl.function as df
 from scipy.sparse import csr_matrix, tril
@@ -142,7 +143,7 @@ class GraphBlock(nn.Module):
         edge_values = G.edata['value'].tolist()
 
         def f(edge_val, parameter):
-            return np.random.binomial(1, np.sqrt(parameter/edge_val), None).astype(np.float) # make sure returning a float
+            return float(np.random.binomial(1, 1-math.sqrt(parameter/edge_val), None)) # make sure returning a float
 
         new_edge_values = torch.tensor([f(e, self.args.edge_parameter) for e in edge_values]).reshape((-1,))
 
