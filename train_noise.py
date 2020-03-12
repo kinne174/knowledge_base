@@ -11,6 +11,7 @@ import torch.optim as optim
 import nltk
 from nltk.corpus import stopwords
 import getpass
+from collections import Counter
 
 #logging
 logger = logging.getLogger(__name__)
@@ -111,6 +112,7 @@ def get_words(cutoff):
     padding_tokens = ['[EOS]', '[BOS]']
     token_list = []
     word_to_idx = {'[PAD]': 0, '[BOS]': 1, '[EOS]': 2}
+    counter = None
     # create a dictionary to translate from words to tokens to be used in an embedding matrix
     # also edits labels, and words to fix typos in sentences, specifically two words sticking together, i.e. oceanbreeze -> ocean breeze
     for ind1, (sent, labels) in enumerate(zip(words_list, labels_list)):
@@ -160,6 +162,12 @@ def get_words(cutoff):
         token_list.append(new_sent)
         labels_list[ind1] = new_labels
 
+        # update counter to be used when sampling words
+        if counter is None:
+            counter = Counter(sent)
+        else:
+            counter.update(sent)
+
     # find max length of tokenized sentence for padding purposes
     # need to pad so input is the same size for MLP in classification, not neccessary for LSTM though
     max_length = max([len(t) for t in token_list])
@@ -181,7 +189,7 @@ def get_words(cutoff):
 
     assert all([len(input) == len(tokens) == len(labels) == max_length for input, tokens, labels in zip(all_input_masks, all_tokens_list, all_labels_list)])
 
-    return all_tokens_list, all_input_masks, all_labels_list, word_to_idx
+    return all_tokens_list, all_input_masks, all_labels_list, word_to_idx, counter
 
 
 # create an embedding matrix from GloVe vectors
@@ -218,13 +226,16 @@ class LSTM2MLP(nn.Module):
 
         self.device = args.device
 
-    def forward(self, input_ids, labels, input_masks=None, add_special_characters=False):
+    def forward(self, input_ids, labels=None, input_masks=None, add_special_tokens=False):
         # each should be batch_size x max_length
 
         batch_size = input_ids.shape[0]
 
+        # if evaluating no labels provided so create a non-vector since we don't care about errors
+        labels = labels if labels is not None else torch.zeros((batch_size, input_ids.shape[1]),dtype=torch.float)
+
         # when doing analysis add a BOS and EOS token and labels of zeros on each end
-        if add_special_characters:
+        if add_special_tokens:
             input_ids = torch.cat((torch.ones((batch_size, 1), dtype=torch.long), input_ids, 2*torch.ones((batch_size, 1), dtype=torch.long)), dim=1)
             labels = torch.cat((torch.zeros((batch_size, 1), dtype=torch.float), labels, torch.zeros((batch_size, 1), dtype=torch.float)), dim=1)
 
@@ -233,8 +244,9 @@ class LSTM2MLP(nn.Module):
         # when doing analysis initialize input mask to indicate no padding, expecting everything to come through one at a time
         if input_masks is None:
             input_masks = torch.ones((batch_size, max_length), dtype=torch.long)
-            if add_special_characters:
-                input_masks = torch.cat((torch.zeros((batch_size, 1), dtype=torch.long), input_masks, torch.zeros((batch_size, 1), dtype=torch.long)), dim=1)
+            if add_special_tokens:
+                input_masks[:, 0] = 0
+                input_masks[:, -1] = 0
 
         # from tokens create embedded sentences from embedding matrix
         inputs = torch.empty((batch_size, max_length, self.embedding_dim)).to(self.device)
@@ -264,14 +276,14 @@ class LSTM2MLP(nn.Module):
         out_scores = out_scores.reshape((batch_size, max_length))
 
         # get rid of scores of BOS and EOS tokens
-        if add_special_characters:
+        if add_special_tokens:
             out_scores = out_scores[:, 1:-1]
 
         return out_scores, out_errors
 
 
 # save the model parameters, embedding matrix, and translation dict
-def save_model(model, embedding_matrix, hidden_dim, word_to_idx):
+def save_model(model, embedding_matrix, hidden_dim, word_to_idx, counter):
     model_save_file = 'saved/train_noise/essential_terms_model_parameters_hidden{}.pt'.format(hidden_dim)
 
     with open(model_save_file, 'wb') as mf:
@@ -286,6 +298,11 @@ def save_model(model, embedding_matrix, hidden_dim, word_to_idx):
 
     with open(word_to_idx_save_file, 'wb') as wf:
         torch.save(word_to_idx, wf)
+
+    counter_save_file = 'saved/train_noise/counter.py'
+
+    with open(counter_save_file, 'wb') as cf:
+        torch.save(counter, cf)
 
 
 # to be used in analysis, load model and translation dict
@@ -310,13 +327,18 @@ def load_model(args):
     with open(word_to_idx_save_file, 'rb') as wf:
         word_to_idx = torch.load(wf)
 
-    return model, word_to_idx
+    counter_save_file = 'saved/train_noise/counter.py'
+
+    with open(counter_save_file, 'rb') as cf:
+        counter = torch.load(cf)
+
+    return model, word_to_idx, counter
 
 
 # train and save model
 def train(args):
 
-    all_token_list, all_input_masks, all_labels_list, word_to_idx = get_words(args.cutoff)
+    all_token_list, all_input_masks, all_labels_list, word_to_idx, counter = get_words(args.cutoff)
 
     embedding_matrix = create_embedding_matrix(word_to_idx)
 
@@ -380,7 +402,7 @@ def train(args):
 
             logger.info('The error is {}'.format(error))
 
-    save_model(model, embedding_matrix, args.essential_terms_hidden_dim, word_to_idx)
+    save_model(model, embedding_matrix, args.essential_terms_hidden_dim, word_to_idx, counter)
 
 
 if __name__ == '__main__':
