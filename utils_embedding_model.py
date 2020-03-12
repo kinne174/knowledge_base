@@ -28,8 +28,7 @@ def features_loader(args, tokenizer, examples):
         assert isinstance(ex, ArcExample)
 
         input_features = []
-        for sentence_feature in ex.sentence_features:
-            sentence = sentence_feature['sentence']
+        for sentence in ex.sentences:
 
             try:
                 inputs = tokenizer.encode(
@@ -65,13 +64,13 @@ def features_loader(args, tokenizer, examples):
             continue
 
         if ex_ind == 0:
-            logger.info('Instance of a Feature.\n input_ids are the transformations to the integers that the model understands\n'
-                        'input_mask is 1 if there is a real word there and 0 for padding. \n'
-                        'token_type_mask is 0 for the first sentence (question answer text) and 1 for the second sentence (context) and 0 for padding *this is odd* \n'
-                        'attention_mask is 0 for question answer text and 1 for context and 0 for padding')
+            logger.info('Example of features used. input_ids is the tokenized form of the sentences,\n input mask is 0 in positions there is padding and 1 otherwise\n'
+                        'sentence type is 0 if from context and 1 if from a question,\n label is the index of the correct sentence')
             logger.info('Question ID: {}'.format(ex.example_id))
-            logger.info('input_ids: {}'.format(' '.join(map(str, input_ids))))
-            logger.info('input_mask: {}'.format(' '.join(map(str, input_mask))))
+            logger.info('input_ids: {}'.format(' :: '.join([' '.join([str(ii) for ii in i_f[0]]) for i_f in input_features])))
+            logger.info('input_mask: {}'.format(' :: '.join([' '.join([str(ii) for ii in i_f[1]]) for i_f in input_features])))
+            logger.info('sentence type: {}'.format(ex.sentence_type))
+            logger.info('label: {}'.format(ex.label))
 
         all_features.append(ArcFeature(example_id=ex.example_id,
                                        input_features=input_features,
