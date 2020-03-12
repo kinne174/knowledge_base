@@ -163,6 +163,59 @@ def main():
     parser = argparse.ArgumentParser()
 
     if not getpass.getuser() == 'Mitch':
+
+        # Required
+        parser.add_argument('--domain_words', default=None, nargs='+', required=True,
+                            help='Domain words to search for')
+
+        # Optional
+        parser.add_argument('--data_dir', default='../ARC/ARC-with-context/', type=str,
+                            help='Data directory where question answers with context resides, train/test/dev .jsonl')
+        parser.add_argument('--output_dir', default='output/', type=str,
+                            help='Directory where output should be written')
+        parser.add_argument('--cache_dir', default='saved/', type=str,
+                            help='Directory where saved parameters should be written')
+        parser.add_argument('--tokenizer_name', default='bert-base-uncased', type=str,
+                            help='Name of the tokenizer to be used in tokenizing the strings')
+        parser.add_argument('--tokenizer_model', default='bert', type=str,
+                            help='Model of the tokenizer to be used in tokenizing the strings (bert, albert etc.)')
+        parser.add_argument('--cutoff', default=None, type=int,
+                            help='Number of examples to cutoff at if testing code')
+        parser.add_argument('--overwrite_output_dir', action='store_true',
+                            help='bool used to make sure user wants to overwrite any output sharing name of domain words in use')
+        parser.add_argument('--overwrite_cache_dir', action='store_true',
+                            help='bool used to overwrite any saved parameters sharing name of domain words in use')
+        parser.add_argument('--seed', default=1234, type=int,
+                            help='Seed for consistent randomization')
+        parser.add_argument('--max_length', default=128, type=int,
+                            help='maximum length of tokens in a sentence, anything longer is cutoff')
+        parser.add_argument('--do_lower_case', action='store_true',
+                            help='Convert all tokens to lower case')
+        parser.add_argument('--no_gpu', action='store_true',
+                            help='Use cpu even if gpu is available')
+        parser.add_argument('--batch_size', default=25, type=int,
+                            help='Batch size of each iteration')
+        parser.add_argument('--epochs', default=10, type=int,
+                            help='Number of epochs')
+        parser.add_argument('--only_context', action='store_true',
+                            help='Only look at context to pick out sentences')
+        parser.add_argument('--pmi_threshold', default=0.4, type=float,
+                            help='Only accept connections in GN above this threshold')
+        parser.add_argument('--common_word_threshold', default=2, type=int,
+                            help='If number of words observed is at or below this threshold assign it [UNK] token')
+        parser.add_argument('--lstm_hidden_dim', default=256, type=int,
+                            help='Dimension size of hiden layer of LSTM')
+        parser.add_argument('--mlp_hidden_dim', default=256, type=int,
+                            help='Dimension size of fully connected layer of MLP')
+        parser.add_argument('--essential_terms_hidden_dim', default=512, type=int,
+                            help='Dimension size of hidden layer within train_noise model')
+        parser.add_argument('--edge_parameter', default=0.1, type=float,
+                            help='Hyperparameter to calculate how likely an edge is to exist in GN')
+        parser.add_argument('--word_embedding_dim', default=300, type=int,
+                            help='This probably will not change, embedding dimension of word vectors')
+        parser.add_argument('--attention_window_size', default=3, type=int,
+                            help='Number of words to replace in sentences with negative sampling')
+
         args = parser.parse_args()
     else:
         class Args(object):
@@ -264,6 +317,7 @@ def main():
     train(args, dataset, knowledge_base, model, optimizer)
 
     # do evaluation here
+    # TODO better logic for evaluation
 
     # do results here
 
