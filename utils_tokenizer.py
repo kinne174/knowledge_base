@@ -81,8 +81,7 @@ class MyTokenizer(object):
         for example_ind, example in enumerate(examples):
             assert isinstance(example, ArcExample)
 
-            for sentence_feature in example.sentence_features:
-                sentence = sentence_feature['sentence']
+            for sentence in example.sentences:
 
                 try:
                     inputs = self._bert.encode_plus(
