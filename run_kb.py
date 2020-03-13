@@ -162,8 +162,6 @@ def train(args, dataset, model, optimizer):
     train_sampler = RandomSampler(dataset, replacement=False)
     train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=args.batch_size)
 
-    num_training_correct = 0
-    num_training_seen = 0
     global_step = 0
 
     train_iterator = trange(int(args.epochs), desc="Epoch")
@@ -172,6 +170,10 @@ def train(args, dataset, model, optimizer):
     logger.info('There are {} examples.'.format(len(dataset)))
     for epoch, _ in enumerate(train_iterator):
         epoch_iterator = tqdm(train_dataloader, desc="Iteration, batch size {}".format(args.batch_size))
+
+        num_training_correct = 0
+        num_training_seen = 0
+
         for iterate, batch in enumerate(epoch_iterator):
             logger.info('Epoch: {}, Batch: {}'.format(epoch, iterate))
 
@@ -203,7 +205,7 @@ def train(args, dataset, model, optimizer):
 
             num_training_seen += int(inputs['labels'].shape[0])
             num_training_correct += int(sum([inputs['labels'][i, p].item() for i, p in zip(range(inputs['labels'].shape[0]), predictions)]))
-            logger.info('The training total correct is {} out of {} for a percentage of {}'.format(
+            logger.info('The training total for this epoch correct is {} out of {} for a percentage of {}'.format(
                 num_training_correct, num_training_seen, round(num_training_correct/num_training_seen, 2)))
 
             if global_step is not 0 and global_step % args.global_save_step == 0:
@@ -256,7 +258,7 @@ def evaluate(args, subset):
     return -1
 
 def save_model_params(args, checkpoint, model):
-    model_save_file = os.path.join(args.cache_dir, 'model_parameters_checkpoint_{}.py'.format(checkpoint))
+    model_save_file = os.path.join(args.output_dir, 'model_parameters_checkpoint_{}.py'.format(checkpoint))
 
     with open(model_save_file, 'wb') as mf:
         torch.save(model.state_dict(), mf)
