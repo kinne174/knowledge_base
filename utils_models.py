@@ -46,6 +46,7 @@ class GraphBlock(nn.Module):
         # if evaluating, don't care about this
         if labels is None:
             labels = torch.zeros((batch_size, 4), dtype=torch.float)
+            labels = labels.to(self.args.device)
 
         all_answer_scores = torch.empty((batch_size, 4)).to(self.args.device)
 
