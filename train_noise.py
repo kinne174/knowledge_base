@@ -322,7 +322,7 @@ def load_model(args):
             embedding_matrix = torch.load(ef)
 
     model = LSTM2MLP(embedding_matrix=embedding_matrix, args=args)
-    model.load_state_dict(torch.load(model_filename[0]))
+    model.load_state_dict(torch.load(model_filename[0], map_location=torch.device('cpu') if getpass.getuser() == 'Mitch' else None))
     model.eval()
 
     word_to_idx_save_file = 'saved/train_noise/word_to_idx.py'
