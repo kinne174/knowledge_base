@@ -118,7 +118,7 @@ def load_and_cache_training(args):
     only_context_str = '_ONLYCONTEXT' if args.only_context else ''
     cutoff_str = '' if args.cutoff is None else '_cutoff{}'.format(args.cutoff)
 
-    features_filename = os.path.join(args.cache_dir, 'features_{}{}{}'.format(only_context_str, cutoff_str, 'train'))
+    features_filename = os.path.join(args.cache_dir, 'features{}{}{}'.format(only_context_str, cutoff_str, 'train'))
     # tokenizer should already be loaded but this is just making damn sure
     tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict_{}.py'.format(args.tokenizer_name))
     vocabulary_filename = os.path.join(args.cache_dir, 'vocabulary_{}.py'.format(args.tokenizer_name))
@@ -380,7 +380,7 @@ def main():
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
                         level=logging.INFO,
-                        filename='logging/logging_{}'.format(num_logging_files))
+                        filename='logging/logging_{}_{}'.format('-'.join(args.domain_words), num_logging_files))
 
     if not os.path.exists(args.output_dir):
         raise Exception('Output directory does not exist here ({})'.format(args.output_dir))
