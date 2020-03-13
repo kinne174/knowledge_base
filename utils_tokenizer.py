@@ -36,7 +36,8 @@ class MyTokenizer(object):
             try:
                 node_ids.append(self.bert_to_node_indices[id])
             except KeyError:
-                raise Exception('Id {} not found in tokenizer which is word {}!'.format(id, self._bert.convert_ids_to_tokens([id])))
+                node_ids.append(1)
+                logger.info('Id {} not found in tokenizer which is word {}!'.format(id, self._bert.convert_ids_to_tokens([id])))
 
         inputs['input_ids'] = node_ids
 

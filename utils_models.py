@@ -19,7 +19,7 @@ class GraphBlock(nn.Module):
         self.args = args # the input from user
         # self.training = training # a bool if the model is training or not
 
-        self.knowledge_base = knowledge_base
+        self.knowledge_base = knowledge_base.to(args.device)
 
         self.linear1 = nn.Linear(in_features=args.word_embedding_dim, out_features=args.mlp_hidden_dim)
         self.lstm = nn.LSTM(args.mlp_hidden_dim, args.lstm_hidden_dim)
@@ -47,7 +47,7 @@ class GraphBlock(nn.Module):
         if labels is None:
             labels = torch.zeros((batch_size, 4), dtype=torch.float)
 
-        all_answer_scores = torch.empty((batch_size, 4))
+        all_answer_scores = torch.empty((batch_size, 4)).to(self.args.device)
 
         # for each batch
         for b in range(batch_size):
@@ -89,8 +89,7 @@ class GraphBlock(nn.Module):
         # return error and individual predictions for each element in batch
         return error, predictions
 
-    @staticmethod
-    def subset_graph(G, input_ids):
+    def subset_graph(self, G, input_ids):
         # subset dgl graph G and return a copy
         # input_ids is a 1 dimensional tensor of length args.max_length
         assert isinstance(G, dgl.DGLGraph)
@@ -133,12 +132,11 @@ class GraphBlock(nn.Module):
         src_dest = src + dest
         dest_src = dest + src
 
-        new_src_dest = new_src + new_dest
-        new_dest_src = new_dest + new_src
-
         new_G.edata['value'] = G.edges[src_dest, dest_src].data['value']
 
         ids_mapping = {ui: all_nodes.index(ui) for ui in all_nodes}
+
+        new_G = new_G.to(self.args.device)
 
         return new_G, ids_mapping
 
@@ -154,6 +152,8 @@ class GraphBlock(nn.Module):
             return float(np.random.binomial(1, 1-math.sqrt(parameter/edge_val), None)) # make sure returning a float
 
         new_edge_values = torch.tensor([f(e, self.args.edge_parameter) for e in edge_values]).reshape((-1,))
+
+        new_edge_values = new_edge_values.to(self.args.device)
 
         G.edata['value'] = new_edge_values
 
