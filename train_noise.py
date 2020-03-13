@@ -232,14 +232,12 @@ class LSTM2MLP(nn.Module):
         batch_size = input_ids.shape[0]
 
         # if evaluating no labels provided so create a non-vector since we don't care about errors
-        labels = labels if labels is not None else torch.zeros((batch_size, input_ids.shape[1]),dtype=torch.float).to(self.device)
+        labels = labels if labels is not None else torch.zeros((batch_size, input_ids.shape[1]), dtype=torch.float)
 
         # when doing analysis add a BOS and EOS token and labels of zeros on each end
         if add_special_tokens:
             input_ids = torch.cat((torch.ones((batch_size, 1), dtype=torch.long), input_ids, 2*torch.ones((batch_size, 1), dtype=torch.long)), dim=1)
-            input_ids = input_ids.to(self.device)
             labels = torch.cat((torch.zeros((batch_size, 1), dtype=torch.float), labels, torch.zeros((batch_size, 1), dtype=torch.float)), dim=1)
-            labels = labels.to(self.device)
 
         max_length = input_ids.shape[1]
 
@@ -250,6 +248,8 @@ class LSTM2MLP(nn.Module):
                 input_masks[:, 0] = 0
                 input_masks[:, -1] = 0
             input_masks = input_masks.to(self.device)
+
+        labels = labels.to(self.device)
 
         # from tokens create embedded sentences from embedding matrix
         inputs = torch.empty((batch_size, max_length, self.embedding_dim)).to(self.device)
