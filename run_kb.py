@@ -369,7 +369,7 @@ def main():
                 self.edge_parameter = 0.1
                 self.word_embedding_dim = 300
                 self.mlp_hidden_dim = 100
-                self.essential_terms_hidden_dim = 100
+                self.essential_terms_hidden_dim = 512
                 self.attention_window_size = 3
 
 
@@ -398,18 +398,21 @@ def main():
     if not os.path.exists(proposed_output_dir):
         os.makedirs(proposed_output_dir)
     else:
-        if os.listdir(proposed_output_dir) and not args.overwrite_output_dir:
-            if args.clear_output_dir:
+        if os.listdir(proposed_output_dir):
+            if not args.overwrite_output_dir:
+                raise Exception(
+                    "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
+                        proposed_output_dir))
+            elif args.clear_output_dir:
                 for filename in os.listdir(proposed_output_dir):
                     file_path = os.path.join(proposed_output_dir, filename)
                     try:
                         os.unlink(file_path)
                     except Exception as e:
                         logger.info('Failed to delete {}. Reason: {}'.format(file_path, e))
-            else:
-                raise Exception(
-                    "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
-                        proposed_output_dir))
+    if not args.overwrite_output_dir and args.clear_output_dir:
+        logger.info('If you want to clear the output directory make sure to set --overwrite_output_dir too')
+
 
     args.output_dir = proposed_output_dir
 
