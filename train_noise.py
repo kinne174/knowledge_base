@@ -236,17 +236,20 @@ class LSTM2MLP(nn.Module):
 
         # when doing analysis add a BOS and EOS token and labels of zeros on each end
         if add_special_tokens:
-            input_ids = torch.cat((torch.ones((batch_size, 1), dtype=torch.long), input_ids, 2*torch.ones((batch_size, 1), dtype=torch.long)), dim=1).to(self.device)
-            labels = torch.cat((torch.zeros((batch_size, 1), dtype=torch.float), labels, torch.zeros((batch_size, 1), dtype=torch.float)), dim=1).to(self.device)
+            input_ids = torch.cat((torch.ones((batch_size, 1), dtype=torch.long), input_ids, 2*torch.ones((batch_size, 1), dtype=torch.long)), dim=1)
+            input_ids = input_ids.to(self.device)
+            labels = torch.cat((torch.zeros((batch_size, 1), dtype=torch.float), labels, torch.zeros((batch_size, 1), dtype=torch.float)), dim=1)
+            labels = labels.to(self.device)
 
         max_length = input_ids.shape[1]
 
         # when doing analysis initialize input mask to indicate no padding, expecting everything to come through one at a time
         if input_masks is None:
-            input_masks = torch.ones((batch_size, max_length), dtype=torch.long).to(self.device)
+            input_masks = torch.ones((batch_size, max_length), dtype=torch.long)
             if add_special_tokens:
                 input_masks[:, 0] = 0
                 input_masks[:, -1] = 0
+            input_masks = input_masks.to(self.device)
 
         # from tokens create embedded sentences from embedding matrix
         inputs = torch.empty((batch_size, max_length, self.embedding_dim)).to(self.device)
