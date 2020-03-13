@@ -2,6 +2,7 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="1da37e44-1d40-4845-945e-3b1582b137c5" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/run_kb.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_kb.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -190,10 +191,10 @@
       <screen x="0" y="0" width="1920" height="1040" />
     </state>
     <state width="968" height="528" key="XDebugger.FullValuePopup/0.0.1920.1040@0.0.1920.1040" timestamp="1583526093933" />
-    <state x="668" y="349" key="com.intellij.ide.util.TipDialog" timestamp="1584066671029">
+    <state x="668" y="349" key="com.intellij.ide.util.TipDialog" timestamp="1584120903752">
       <screen x="0" y="0" width="1920" height="1040" />
     </state>
-    <state x="668" y="349" key="com.intellij.ide.util.TipDialog/0.0.1920.1040/1920.-274.1920.1040@0.0.1920.1040" timestamp="1584066671029" />
+    <state x="668" y="349" key="com.intellij.ide.util.TipDialog/0.0.1920.1040/1920.-274.1920.1040@0.0.1920.1040" timestamp="1584120903752" />
     <state x="668" y="349" key="com.intellij.ide.util.TipDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1584034630544" />
     <state x="623" y="225" width="672" height="678" key="search.everywhere.popup" timestamp="1584043264851">
       <screen x="0" y="0" width="1920" height="1040" />

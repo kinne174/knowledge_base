@@ -57,6 +57,7 @@ def select_field(features, field):
         for feature in features
     ]
 
+
 def load_and_cache_evaluation(args, subset):
 
     tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict_{}.py'.format(args.tokenizer_name))
@@ -95,7 +96,7 @@ def load_and_cache_evaluation(args, subset):
     knowledge_base = load_graph(args)
 
     # load model
-    model_filenames = glob.glob(os.path.join(args.cache_dir, 'model_parameters_checkpoint_*.py'))
+    model_filenames = glob.glob(os.path.join(args.output_dir, 'model_parameters_checkpoint_*.py'))
     assert len(model_filenames) > 0, 'No model parameters found'
     index_ = len(model_filenames[0]) - model_filenames[0][::-1].index('_')
     indicesdot = [mf.index('.') for mf in model_filenames]
