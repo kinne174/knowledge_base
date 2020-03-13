@@ -2,7 +2,8 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="1da37e44-1d40-4845-945e-3b1582b137c5" name="Default Changelist" comment="">
-      <change beforePath="$PROJECT_DIR$/train_noise.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_noise.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_kb.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_kb.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -208,11 +209,6 @@
           <url>file://$PROJECT_DIR$/test.py</url>
           <line>8</line>
           <option name="timeStamp" value="53" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/run_kb.py</url>
-          <line>249</line>
-          <option name="timeStamp" value="60" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

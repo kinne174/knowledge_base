@@ -214,12 +214,18 @@ def train(args, dataset, model, optimizer):
 
             global_step += 1
 
+    assert save_model_params(args=args, checkpoint=global_step, model=model) == -1
+
 
 def evaluate(args, subset):
     assert subset in ['dev', 'test'], 'subset must be one of "test" or "dev"'
 
+    # TODO bug where save only appears on second go around, should use current stuff and resort to loading only if don't have stuff
+
     # get questions from appropriate subset
     dataset, model = load_and_cache_evaluation(args, subset)
+
+    model = model.to(args.device)
 
     # set up dataset in a sampler
     # use pytorch data loaders to cycle through the data,
