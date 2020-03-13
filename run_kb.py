@@ -83,7 +83,7 @@ def load_and_cache_evaluation(args, subset):
     all_sentence_type = torch.tensor([f.sentence_type for f in features], dtype=torch.long).unsqueeze(1)
     all_labels = torch.tensor(label_map([f.label for f in features], num_choices=4), dtype=torch.float)
 
-    assert all_sentence_type == torch.ones_like(all_sentence_type)
+    assert all(all_sentence_type == torch.ones_like(all_sentence_type))
 
     dataset = TensorDataset(all_input_ids, all_input_mask, all_labels)
 
@@ -223,12 +223,12 @@ def evaluate(args, subset):
 
     # set up dataset in a sampler
     # use pytorch data loaders to cycle through the data,
-    train_sampler = SequentialSampler(dataset)
-    train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=len(dataset))
+    # train_sampler = SequentialSampler(dataset)
+    # train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=len(dataset))
 
     logging.info('Beggining to evaluate {} subset'.format(subset))
     # for batch in train_dataloader: # todo possibly can replace this depending on what train_dataloader is, maybe just use next??
-    batch = next(train_dataloader)
+    batch = dataset.tensors
     # should be whole thing
 
     # get batch
@@ -336,14 +336,14 @@ def main():
                 self.tokenizer_model = 'bert'
                 self.cutoff = 50
                 self.overwrite_output_dir = True
-                self.overwrite_cache_dir = True
+                self.overwrite_cache_dir = False
                 self.seed = 1234
                 self.max_length = 128
                 self.do_lower_case = True
-                self.no_gpu = True
+                self.no_gpu = False
                 self.batch_size = 2
                 self.epochs = 3
-                self.global_save_step = 10
+                self.global_save_step = 1
                 self.evaluate_during_training = True
                 self.train = True
                 self.evaluate_dev = False
