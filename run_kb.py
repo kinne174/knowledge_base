@@ -102,7 +102,7 @@ def load_and_cache_evaluation(args, subset):
     indicesdot = [mf.index('.') for mf in model_filenames]
     checkpoints = [mf[index_:idot] for mf, idot in zip(model_filenames, indicesdot)]
     max_checkpoint = max(checkpoints)
-    model_filename = os.path.join(args.cache_dir, 'model_parameters_checkpoint_{}.py'.format(max_checkpoint))
+    model_filename = os.path.join(args.output_dir, 'model_parameters_checkpoint_{}.py'.format(max_checkpoint))
 
     logger.info('Loading model using checkpoint {}'.format(max_checkpoint))
     model = GraphBlock(args, knowledge_base)
