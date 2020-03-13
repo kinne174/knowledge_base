@@ -232,18 +232,18 @@ class LSTM2MLP(nn.Module):
         batch_size = input_ids.shape[0]
 
         # if evaluating no labels provided so create a non-vector since we don't care about errors
-        labels = labels if labels is not None else torch.zeros((batch_size, input_ids.shape[1]),dtype=torch.float)
+        labels = labels if labels is not None else torch.zeros((batch_size, input_ids.shape[1]),dtype=torch.float).to(self.device)
 
         # when doing analysis add a BOS and EOS token and labels of zeros on each end
         if add_special_tokens:
-            input_ids = torch.cat((torch.ones((batch_size, 1), dtype=torch.long), input_ids, 2*torch.ones((batch_size, 1), dtype=torch.long)), dim=1)
-            labels = torch.cat((torch.zeros((batch_size, 1), dtype=torch.float), labels, torch.zeros((batch_size, 1), dtype=torch.float)), dim=1)
+            input_ids = torch.cat((torch.ones((batch_size, 1), dtype=torch.long), input_ids, 2*torch.ones((batch_size, 1), dtype=torch.long)), dim=1).to(self.device)
+            labels = torch.cat((torch.zeros((batch_size, 1), dtype=torch.float), labels, torch.zeros((batch_size, 1), dtype=torch.float)), dim=1).to(self.device)
 
         max_length = input_ids.shape[1]
 
         # when doing analysis initialize input mask to indicate no padding, expecting everything to come through one at a time
         if input_masks is None:
-            input_masks = torch.ones((batch_size, max_length), dtype=torch.long)
+            input_masks = torch.ones((batch_size, max_length), dtype=torch.long).to(self.device)
             if add_special_tokens:
                 input_masks[:, 0] = 0
                 input_masks[:, -1] = 0
