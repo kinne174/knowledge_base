@@ -114,6 +114,8 @@ def examples_loader(args, evaluate_subset=None):
     # load the model and translation dict and counter
     model, word_to_idx, counter = load_model(args)
 
+    model = model.to(args.device)
+
     if args.only_context or evaluating:
 
         for subset in subsets:

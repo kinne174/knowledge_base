@@ -314,7 +314,7 @@ def main():
                             help='This probably will not change, embedding dimension of word vectors')
         parser.add_argument('--attention_window_size', default=3, type=int,
                             help='Number of words to replace in sentences with negative sampling')
-        parser.add_argument('--global_save_step', default=None, type=int,
+        parser.add_argument('--global_save_step', default=100, type=int,
                             help='Save model parameters when modulus this step is zero')
         parser.add_argument('--evaluate_during_training', action='store_true',
                             help='While saving perform evaluation of model on dev set')
