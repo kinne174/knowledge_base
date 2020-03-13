@@ -100,7 +100,7 @@ def load_and_cache_evaluation(args, subset):
     assert len(model_filenames) > 0, 'No model parameters found'
     index_ = len(model_filenames[0]) - model_filenames[0][::-1].index('_')
     indicesdot = [mf.index('.') for mf in model_filenames]
-    checkpoints = [mf[index_:idot] for mf, idot in zip(model_filenames, indicesdot)]
+    checkpoints = [int(mf[index_:idot]) for mf, idot in zip(model_filenames, indicesdot)]
     max_checkpoint = max(checkpoints)
     model_filename = os.path.join(args.output_dir, 'model_parameters_checkpoint_{}.py'.format(max_checkpoint))
 
@@ -291,6 +291,8 @@ def main():
                             help='Number of examples to cutoff at if testing code')
         parser.add_argument('--overwrite_output_dir', action='store_true',
                             help='bool used to make sure user wants to overwrite any output sharing name of domain words in use')
+        parser.add_argument('--clear_output_dir', action='store_true',
+                            help='Clear all files in output directory')
         parser.add_argument('--overwrite_cache_dir', action='store_true',
                             help='bool used to overwrite any saved parameters sharing name of domain words in use')
         parser.add_argument('--seed', default=1234, type=int,
@@ -357,6 +359,7 @@ def main():
                 self.train = True
                 self.evaluate_dev = False
                 self.evaluate_test = False
+                self.clear_output_dir = True
 
                 self.domain_words = ['moon', 'earth']
                 self.only_context = True
@@ -396,9 +399,17 @@ def main():
         os.makedirs(proposed_output_dir)
     else:
         if os.listdir(proposed_output_dir) and not args.overwrite_output_dir:
-            raise Exception(
-                "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
-                    proposed_output_dir))
+            if args.clear_output_dir:
+                for filename in os.listdir(proposed_output_dir):
+                    file_path = os.path.join(proposed_output_dir, filename)
+                    try:
+                        os.unlink(file_path)
+                    except Exception as e:
+                        logger.info('Failed to delete {}. Reason: {}'.format(file_path, e))
+            else:
+                raise Exception(
+                    "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
+                        proposed_output_dir))
 
     args.output_dir = proposed_output_dir
 
