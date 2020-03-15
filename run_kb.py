@@ -174,6 +174,7 @@ def train(args, dataset, model, optimizer):
 
         num_training_correct = 0
         num_training_seen = 0
+        total_error = 0
 
         for iterate, batch in enumerate(epoch_iterator):
             logger.info('Epoch: {}, Batch: {}'.format(epoch, iterate))
@@ -202,7 +203,9 @@ def train(args, dataset, model, optimizer):
             #     print(list(model.parameters())[i].grad)
             #     print(torch.max(list(model.parameters())[i].grad))
 
-            logger.info('The error is {}'.format(error))
+            total_error += error.item()
+
+            logger.info('The error for this epoch is {}'.format(round(error/iterate, 4)))
 
             num_training_seen += int(inputs['labels'].shape[0])
             num_training_correct += int(sum([inputs['labels'][i, p].item() for i, p in zip(range(inputs['labels'].shape[0]), predictions)]))
@@ -223,8 +226,6 @@ def train(args, dataset, model, optimizer):
 def evaluate(args, subset):
     assert subset in ['dev', 'test'], 'subset must be one of "test" or "dev"'
 
-    # TODO bug where save only appears on second go around, should use current stuff and resort to loading only if don't have stuff
-
     # get questions from appropriate subset
     dataset, model = load_and_cache_evaluation(args, subset)
 
@@ -236,9 +237,9 @@ def evaluate(args, subset):
     # train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=len(dataset))
 
     logging.info('Beggining to evaluate {} subset'.format(subset))
-    # for batch in train_dataloader: # todo possibly can replace this depending on what train_dataloader is, maybe just use next??
-    batch = dataset.tensors
+
     # should be whole thing
+    batch = dataset.tensors
 
     # get batch
     batch = tuple(t.to(args.device) for t in batch)
@@ -376,7 +377,7 @@ def main():
         args = Args()
 
     # Setup logging
-    num_logging_files = len(glob.glob('logging/logging_*'))
+    num_logging_files = len(glob.glob('logging/logging_{}_*'.format('-'.join(args.domain_words))))
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
                         level=logging.INFO,
@@ -465,5 +466,11 @@ def main():
 if __name__ == '__main__':
     main()
 
+
+# TODO implement getting challenge and easy questions possibly for evaluating only
+# TODO explore adding more parameters to models
+# TODO try resampling examples between epochs
+# TODO Think about what kind of analysis can be done with what I currently have, what do I want to write about? What kind of ablation study or GNN analysis can I perform?
+# TODO make edges have a posterior to determine how effective edges were
 
 

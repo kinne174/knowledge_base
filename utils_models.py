@@ -29,7 +29,6 @@ class GraphBlock(nn.Module):
 
     def forward(self, training, **inputs):
         '''
-        # TODO make sure all things that need to be thrown to device are
         :param knowledge_base: DGL graph that needs to be subsetted based on the inputs
         :param **inputs: 'input_ids': batch size x 4 x args.max_length , 'label' : batch size * 4 - one hot vector
         :return: error of predicted versus real labels
@@ -159,8 +158,3 @@ class GraphBlock(nn.Module):
         G.edata['value'] = new_edge_values
 
         return G
-
-
-
-
-
