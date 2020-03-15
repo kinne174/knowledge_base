@@ -205,7 +205,7 @@ def train(args, dataset, model, optimizer):
 
             total_error += error.item()
 
-            logger.info('The error for this epoch is {}'.format(round(error/iterate, 4)))
+            logger.info('The error for this epoch is {}'.format(round(total_error/(iterate + 1), 4)))
 
             num_training_seen += int(inputs['labels'].shape[0])
             num_training_correct += int(sum([inputs['labels'][i, p].item() for i, p in zip(range(inputs['labels'].shape[0]), predictions)]))
