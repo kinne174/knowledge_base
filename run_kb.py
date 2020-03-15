@@ -96,16 +96,20 @@ def load_and_cache_evaluation(args, subset):
     knowledge_base = load_graph(args)
 
     # load model
-    model_filenames = glob.glob(os.path.join(args.output_dir, 'model_parameters_checkpoint_*.py'))
-    assert len(model_filenames) > 0, 'No model parameters found'
-    index_ = len(model_filenames[0]) - model_filenames[0][::-1].index('_')
-    indicesdot = [mf.index('.') for mf in model_filenames]
-    checkpoints = [int(mf[index_:idot]) for mf, idot in zip(model_filenames, indicesdot)]
+    model_folders = glob.glob(os.path.join(args.output_dir, 'model_checkpoint_*'))
+    assert len(model_folders) > 0, 'No model parameters found'
+    index_ = len(model_folders[0]) - model_folders[0][::-1].index('_')
+
+    checkpoints = [int(mf[index_:]) for mf in model_folders]
     max_checkpoint = max(checkpoints)
-    model_filename = os.path.join(args.output_dir, 'model_parameters_checkpoint_{}.py'.format(max_checkpoint))
+    model_folder = os.path.join(args.output_dir, 'model_checkpoint_{}'.format(max_checkpoint))
 
     logger.info('Loading model using checkpoint {}'.format(max_checkpoint))
-    model = GraphBlock(args, knowledge_base)
+    model_filename = os.path.join(model_folder, 'model_parameters.py')
+    good_counter_filename = os.path.join(model_folder, 'good_counter.py')
+    all_counter_filename = os.path.join(model_folder, 'all_counter.py')
+
+    model = GraphBlock.from_pretrained(args, knowledge_base, good_counter_filename, all_counter_filename)
     model.load_state_dict(torch.load(model_filename))
     model.eval()
 
@@ -260,10 +264,23 @@ def evaluate(args, subset):
     return -1
 
 def save_model_params(args, checkpoint, model):
-    model_save_file = os.path.join(args.output_dir, 'model_parameters_checkpoint_{}.py'.format(checkpoint))
+    model_save_folder = os.path.join(args.output_dir, 'model_checkpoint_{}'.format(checkpoint))
+
+    if not os.path.exists(model_save_folder):
+        os.makedirs(model_save_folder)
+
+    model_save_file = os.path.join(model_save_folder, 'model_parameters.py')
+    good_counter_save_file = os.path.join(model_save_folder, 'good_counter.py')
+    all_counter_save_file = os.path.join(model_save_folder, 'all_counter.py')
 
     with open(model_save_file, 'wb') as mf:
         torch.save(model.state_dict(), mf)
+
+    with open(good_counter_save_file, 'wb') as gf:
+        torch.save(model.good_edge_connections, gf)
+
+    with open(all_counter_save_file, 'wb') as af:
+        torch.save(model.all_edge_connections, af)
 
     return -1
 
@@ -312,7 +329,7 @@ def main():
                             help='Only look at context to pick out sentences')
         parser.add_argument('--pmi_threshold', default=0.4, type=float,
                             help='Only accept connections in GN above this threshold')
-        parser.add_argument('--common_word_threshold', default=2, type=int,
+        parser.add_argument('--common_word_threshold', default=4, type=int,
                             help='If number of words observed is at or below this threshold assign it [UNK] token')
         parser.add_argument('--lstm_hidden_dim', default=256, type=int,
                             help='Dimension size of hiden layer of LSTM')
@@ -348,7 +365,7 @@ def main():
                 self.tokenizer_model = 'bert'
                 self.cutoff = 50
                 self.overwrite_output_dir = True
-                self.overwrite_cache_dir = False
+                self.overwrite_cache_dir = True
                 self.seed = 1234
                 self.max_length = 128
                 self.do_lower_case = True

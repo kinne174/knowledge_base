@@ -7,13 +7,14 @@ import math
 import dgl
 import dgl.function as df
 from scipy.sparse import csr_matrix, tril
+from collections import Counter
 
 # logging
 logger = logging.getLogger(__name__)
 
 
 class GraphBlock(nn.Module):
-    def __init__(self, args, knowledge_base):
+    def __init__(self, args, knowledge_base, good_counter=None, all_counter=None):
         super(GraphBlock, self).__init__()
 
         self.args = args # the input from user
@@ -26,6 +27,21 @@ class GraphBlock(nn.Module):
         self.linear2 = nn.Linear(args.lstm_hidden_dim, 1)
 
         self.loss_function = nn.BCEWithLogitsLoss()
+
+        self.good_edge_connections = Counter() if good_counter is None else good_counter
+        self.all_edge_connections = Counter() if all_counter is None else all_counter
+
+    @classmethod
+    def from_pretrained(cls, args, knowledge_base, good_filename=None, all_filename=None):
+        if good_filename is None and all_filename is None:
+            return cls(args, knowledge_base)
+
+        with open(good_filename, 'rb') as gf:
+            good_counter = torch.load(gf)
+        with open(all_filename, 'rb') as af:
+            all_counter = torch.load(af)
+
+        return cls(args, knowledge_base, good_counter, all_counter)
 
     def forward(self, training, **inputs):
         '''
@@ -48,9 +64,14 @@ class GraphBlock(nn.Module):
             labels = labels.to(self.args.device)
 
         all_answer_scores = torch.empty((batch_size, 4)).to(self.args.device)
+        all_edge_data = []
+        all_ids_mapping = []
 
         # for each batch
         for b in range(batch_size):
+            edge_data_l = []
+            ids_mapping_l = []
+
             # for each input
             for i in range(4):
                 # subset graph based on current input, grab nodes of inputs and first neighbor nodes and all corresponding edges, create a copy so can change edges/ nodes
@@ -58,7 +79,7 @@ class GraphBlock(nn.Module):
                 subset_knowledge_base, ids_mapping = self.subset_graph(self.knowledge_base, current_input_ids)
 
                 # if training cast edges to {0, 1} in a bernoulli fashion based on word2vec function, else return as is
-                subset_knowledge_base = self.cast_edges(subset_knowledge_base, training)
+                subset_knowledge_base = self.cast_edges(subset_knowledge_base, training, ids_mapping)
 
                 # aggregate nodes in a mean/ summing way, can try to do this with dgl
                 subset_knowledge_base.update_all(message_func=df.u_mul_e('embedding', 'value', 'embedding_'),
@@ -77,6 +98,14 @@ class GraphBlock(nn.Module):
 
                 all_answer_scores[b, i] = answer_score
 
+                # list of 2d tuples with tensors, tuple[0] is sender nodes and tuple[1] is receiver nodes
+                edge_data_l.append(subset_knowledge_base.edges())
+                # list of ids mapping
+                ids_mapping_l.append(ids_mapping)
+
+            all_edge_data.append(edge_data_l)
+            all_ids_mapping.append(ids_mapping_l)
+
         # soft max over logits, may need to transform again if output from MLP is not "correct"
         softmaxed_scores = F.softmax(all_answer_scores, dim=1)
 
@@ -85,6 +114,24 @@ class GraphBlock(nn.Module):
 
         # calculate prediction
         predictions = torch.argmax(softmaxed_scores, dim=1)
+
+        if labels is not None:
+            correct = [labels[i, p].item() for i, p in zip(range(labels.shape[0]), predictions)]
+            for c, batch_edges, batch_ids_map in zip(correct, all_edge_data, all_ids_mapping):
+                pairings = []
+                for edges, ids_map in zip(batch_edges, batch_ids_map):
+                    # maps from subsetted node indices to original node indices
+                    reverse_ids_map = {v: k for k, v in ids_map.items()}
+
+                    pairings.extend([(reverse_ids_map[s], reverse_ids_map[r]) for s, r in zip(edges[0].tolist(), edges[1].tolist())])
+
+                pairings_set = set(pairings)
+                if c == 1:
+                    # update good counter with edge connections
+                    self.good_edge_connections.update(pairings_set)
+
+                # update all counters
+                self.all_edge_connections.update(pairings_set)
 
         # return error and individual predictions for each element in batch
         return error, predictions
@@ -134,22 +181,50 @@ class GraphBlock(nn.Module):
 
         new_G.edata['value'] = G.edges[src_dest, dest_src].data['value']
 
+        # maps from original G nodes indices to new node indices
         ids_mapping = {ui: all_nodes.index(ui) for ui in all_nodes}
 
         new_G = new_G.to(self.args.device)
 
         return new_G, ids_mapping
 
-    def cast_edges(self, G, training):
-        if not training:
-            return G
-
+    def cast_edges(self, G, training, id_mapping):
         assert isinstance(G, dgl.DGLGraph)
+
+        if not training:
+            edges = G.edges()
+
+            # map from subset node indices to original
+            reverse_id_mapping = {v: k for k, v in id_mapping.items()}
+
+            new_edge_values = []
+            for s, r in zip(edges[0].tolist(), edges[1].tolist()):
+                old_s = reverse_id_mapping[s]
+                old_r = reverse_id_mapping[r]
+                old_s_r = (old_s, old_r)
+
+                num_good_connections = self.good_edge_connections[old_s_r]
+                if num_good_connections == 0:
+                    new_edge_values.append(0)
+                    continue
+
+                num_all_connections = self.all_edge_connections[old_s_r]
+
+                assert 0 <= num_good_connections <= num_all_connections
+
+                new_edge_values.append(num_good_connections/num_all_connections)
+
+            new_edge_values = torch.tensor(new_edge_values).reshape((-1,))
+            new_edge_values = new_edge_values.to(self.args.device)
+
+            G.edata['value'] = new_edge_values
+
+            return G
 
         edge_values = G.edata['value'].tolist()
 
         def f(edge_val, parameter):
-            return float(np.random.binomial(1, 1-math.sqrt(parameter/edge_val), None)) # make sure returning a float
+            return float(np.random.binomial(1, 1-math.sqrt(parameter/edge_val), None))  # make sure returning a float
 
         new_edge_values = torch.tensor([f(e, self.args.edge_parameter) for e in edge_values]).reshape((-1,))
 
