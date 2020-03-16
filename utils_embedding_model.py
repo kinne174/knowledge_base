@@ -30,21 +30,11 @@ def features_loader(args, tokenizer, examples):
         input_features = []
         for sentence in ex.sentences:
 
-            try:
-                inputs = tokenizer.encode(
-                    sentence,
-                    add_special_tokens=False,
-                    max_length=args.max_length
-                )
-            except AssertionError as err_msg:
-                logger.info('Assertion error at example id {}: {}'.format(ex_ind, err_msg))
-                break_flag = True
-                break
+            input_ids = tokenizer.encode(sentence, args.do_lower_case)
 
-            if 'num_truncated_tokens' in inputs and inputs['num_truncated_tokens'] > 0:
-                logger.info('Truncating context for question id {}'.format(ex.example_id))
-
-            input_ids = inputs['input_ids']
+            if len(input_ids) > args.max_length:
+                logger.info('Truncating sentence in example indice {}'.format(ex_ind))
+                input_ids = input_ids[:args.max_length]
 
             input_mask = [1]*len(input_ids)
 
@@ -63,7 +53,7 @@ def features_loader(args, tokenizer, examples):
             break_flag = False
             continue
 
-        if ex_ind == 0:
+        if ex_ind <= 1:
             logger.info('Example of features used. input_ids is the tokenized form of the sentences,\n input mask is 0 in positions there is padding and 1 otherwise\n'
                         'sentence type is 0 if from context and 1 if from a question,\n label is the index of the correct sentence')
             logger.info('Question ID: {}'.format(ex.example_id))
