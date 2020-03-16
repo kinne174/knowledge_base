@@ -422,12 +422,15 @@ def main():
                     "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
                         proposed_output_dir))
             elif args.clear_output_dir:
-                for filename in os.listdir(proposed_output_dir):
-                    file_path = os.path.join(proposed_output_dir, filename)
-                    try:
-                        os.unlink(file_path)
-                    except Exception as e:
-                        logger.info('Failed to delete {}. Reason: {}'.format(file_path, e))
+                for folder in os.listdir(proposed_output_dir):
+                    filenames = os.listdir(os.path.join(proposed_output_dir, folder))
+                    for filename in filenames:
+                        file_path = os.path.join(proposed_output_dir, folder, filename)
+                        try:
+                            os.unlink(file_path)
+                        except Exception as e:
+                            logger.info('Failed to delete {}. Reason: {}'.format(file_path, e))
+                    os.rmdir(os.path.join(proposed_output_dir, folder))
     if not args.overwrite_output_dir and args.clear_output_dir:
         logger.info('If you want to clear the output directory make sure to set --overwrite_output_dir too')
 
