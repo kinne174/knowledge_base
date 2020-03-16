@@ -115,7 +115,7 @@ class GraphBlock(nn.Module):
         # calculate prediction
         predictions = torch.argmax(softmaxed_scores, dim=1)
 
-        if labels is not None:
+        if training:
             correct = [labels[i, p].item() for i, p in zip(range(labels.shape[0]), predictions)]
             for c, batch_edges, batch_ids_map in zip(correct, all_edge_data, all_ids_mapping):
                 pairings = []
