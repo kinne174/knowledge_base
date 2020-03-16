@@ -203,6 +203,10 @@ class GraphBlock(nn.Module):
                 old_r = reverse_id_mapping[r]
                 old_s_r = (old_s, old_r)
 
+                if old_s == old_r:
+                    new_edge_values.append(1)
+                    continue
+
                 num_good_connections = self.good_edge_connections[old_s_r]
                 if num_good_connections == 0:
                     new_edge_values.append(0)
