@@ -118,6 +118,7 @@ def examples_loader(args, evaluate_subset=None):
 
     if args.only_context or evaluating:
 
+        break_flag = False
         for subset in subsets:
 
             data_filename = os.path.join(args.data_dir, '{}.jsonl'.format(subset))
@@ -213,7 +214,12 @@ def examples_loader(args, evaluate_subset=None):
 
                     if args.cutoff is not None and len(all_examples) >= args.cutoff:
                         all_examples = all_examples[:args.cutoff]
+                        break_flag = True
                         break
+
+            if break_flag:
+                break
+
     else:
         data_filename = '../ARC/ARC-V1-Feb2018-2/ARC_Corpus.txt'
         with codecs.open(data_filename, 'r', encoding='utf-8', errors='ignore') as corpus:
