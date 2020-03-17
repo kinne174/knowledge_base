@@ -33,13 +33,13 @@ class MyTokenizer(object):
         return node_ids
 
     def save_tokenizer(self, args):
-        node_indices_file = os.path.join(args.cache_dir, 'tokenizerDict_{}.py'.format(args.tokenizer_name))
+        node_indices_file = os.path.join(args.cache_dir, 'tokenizerDict.py')
         logger.info('Saving tokenizer with {} ids to {}'.format(len(self.word_to_my_ind), node_indices_file))
 
         with open(node_indices_file, 'wb') as tokenizer_writer:
             pickle.dump(obj=self.word_to_my_ind, file=tokenizer_writer)
 
-        vocabulary_file = os.path.join(args.cache_dir, 'vocabulary_{}.py'.format(args.tokenizer_name))
+        vocabulary_file = os.path.join(args.cache_dir, 'vocabulary.py')
         logger.info('Saving vocabulary to {}'.format(vocabulary_file))
 
         with open(vocabulary_file, 'wb') as vocabulary_writer:
@@ -49,8 +49,8 @@ class MyTokenizer(object):
 
     @classmethod
     def load_tokenizer(cls, args):
-        node_indices_file = os.path.join(args.cache_dir, 'tokenizerDict_{}.py'.format(args.tokenizer_name))
-        vocabulary_file = os.path.join(args.cache_dir, 'vocabulary_{}.py'.format(args.tokenizer_name))
+        node_indices_file = os.path.join(args.cache_dir, 'tokenizerDict.py')
+        vocabulary_file = os.path.join(args.cache_dir, 'vocabulary.py')
 
         if os.path.exists(node_indices_file) and os.path.exists(vocabulary_file) and not args.overwrite_cache_dir:
             logger.info('Loding pretrained tokenizer from {} and {}'.format(node_indices_file, vocabulary_file))
