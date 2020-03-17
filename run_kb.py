@@ -234,7 +234,7 @@ def train(args, dataset, model, optimizer):
             # calculate prediction
             predictions = torch.argmax(softmaxed_scores, dim=1)
 
-            num_training_seen = np.add(num_training_seen, [inputs['sentence_type'].shape[0] - sum(inputs['sentence_type']), sum(inputs['sentence_type'])])
+            num_training_seen = np.add(num_training_seen, [inputs['sentence_type'].shape[0] - sum(inputs['sentence_type']), sum(inputs['sentence_type'])], dtype=np.int)
             correct_list = [inputs['labels'][i, p].item() for i, p in zip(range(inputs['labels'].shape[0]), predictions)]
             num_training_correct = np.sum([correct_update(st, c) for st, c in zip(inputs['sentence_type'], correct_list)], axis=0, dtype=np.int)
 
@@ -408,12 +408,12 @@ def main():
                 self.epochs = 3
                 self.global_save_step = 2
                 self.evaluate_during_training = False
-                self.train = False
+                self.train = True
                 self.evaluate_dev = True
                 self.evaluate_test = False
                 self.clear_output_dir = False
                 self.do_ablation = True
-                self.evaluate_all_models = True
+                self.evaluate_all_models = False
 
                 self.domain_words = ['moon', 'earth']
                 self.only_context = True
