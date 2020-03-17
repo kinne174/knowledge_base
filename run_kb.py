@@ -236,7 +236,7 @@ def train(args, dataset, model, optimizer):
 
             num_training_seen = np.add(num_training_seen, [inputs['sentence_type'].shape[0] - sum(inputs['sentence_type']), sum(inputs['sentence_type'])], dtype=np.int)
             correct_list = [inputs['labels'][i, p].item() for i, p in zip(range(inputs['labels'].shape[0]), predictions)]
-            num_training_correct = np.sum([correct_update(st, c) for st, c in zip(inputs['sentence_type'], correct_list)], axis=0, dtype=np.int)
+            num_training_correct = np.add(num_training_correct, np.sum([correct_update(st, c) for st, c in zip(inputs['sentence_type'], correct_list)], axis=0), dtype=np.int)
 
             logger.info('The training total for this epoch correct is {} out of {} for a percentage of {}'.format(
                 sum(num_training_correct), sum(num_training_seen), round(sum(num_training_correct)/float(sum(num_training_seen)), 3)))
