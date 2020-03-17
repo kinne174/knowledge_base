@@ -15,6 +15,7 @@ from utils_real_data import examples_loader
 from utils_embedding_model import features_loader
 from utils_kb import build_graph, load_graph, save_graph
 from utils_models import GraphBlock
+from utils_ablation import ablation
 
 # logging
 logger = logging.getLogger(__name__)
@@ -58,13 +59,16 @@ def select_field(features, field):
     ]
 
 
-def load_and_cache_evaluation(args, subset):
+def load_and_cache_evaluation(args, subset, all_models):
 
-    tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict_{}.py'.format(args.tokenizer_name))
+    tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict.py')
     assert os.path.exists(tokenizer_filename), 'Cannot find tokenizer filename, this must exist to evaluate'
-    vocabulary_filename = os.path.join(args.cache_dir, 'vocabulary_{}.py'.format(args.tokenizer_name))
+    vocabulary_filename = os.path.join(args.cache_dir, 'vocabulary.py')
     assert os.path.exists(vocabulary_filename), 'Cannot find vocabulary filename, this must exist to evaluate'
 
+    logging.info('For evaluating {} subset loading tokenizer from {} and {}'.format(subset,
+                                                                                    tokenizer_filename,
+                                                                                    vocabulary_filename))
     my_tokenizer = MyTokenizer.load_tokenizer(args)
 
     feautres_filename = os.path.join(args.cache_dir, 'features_{}'.format(subset))
@@ -92,7 +96,8 @@ def load_and_cache_evaluation(args, subset):
     graph_filename = os.path.join(args.cache_dir, 'graph{}.py'.format(cutoff_str))
     assert os.path.exists(graph_filename)
 
-    logger.info('Evaluation: Loading graph')
+    logger.info('Evaluating {} subset, Loading graph from {}'.format(subset,
+                                                                     graph_filename))
     knowledge_base = load_graph(args)
 
     # load model
@@ -101,19 +106,28 @@ def load_and_cache_evaluation(args, subset):
     index_ = len(model_folders[0]) - model_folders[0][::-1].index('_')
 
     checkpoints = [int(mf[index_:]) for mf in model_folders]
-    max_checkpoint = max(checkpoints)
-    model_folder = os.path.join(args.output_dir, 'model_checkpoint_{}'.format(max_checkpoint))
 
-    logger.info('Loading model using checkpoint {}'.format(max_checkpoint))
-    model_filename = os.path.join(model_folder, 'model_parameters.py')
-    good_counter_filename = os.path.join(model_folder, 'good_counter.py')
-    all_counter_filename = os.path.join(model_folder, 'all_counter.py')
+    if not all_models:
+        max_checkpoint = max(checkpoints)
+        model_folders_checkpoints = [(os.path.join(args.output_dir, 'model_checkpoint_{}'.format(max_checkpoint)), max_checkpoint)]
+    else:
+        model_folders_checkpoints = list(map(list, zip(model_folders, checkpoints)))
 
-    model = GraphBlock.from_pretrained(args, knowledge_base, good_counter_filename, all_counter_filename)
-    model.load_state_dict(torch.load(model_filename))
-    model.eval()
+    models_checkpoints = []
+    for (mf, cp) in model_folders_checkpoints:
 
-    return dataset, model
+        logger.info('Loading model using checkpoint {}'.format(cp))
+        model_filename = os.path.join(mf, 'model_parameters.py')
+        good_counter_filename = os.path.join(mf, 'good_counter.py')
+        all_counter_filename = os.path.join(mf, 'all_counter.py')
+
+        model = GraphBlock.from_pretrained(args, knowledge_base, good_counter_filename, all_counter_filename)
+        model.load_state_dict(torch.load(model_filename))
+        model.eval()
+
+        models_checkpoints.append((model, cp))
+
+    return dataset, models_checkpoints
 
 
 def load_and_cache_training(args):
@@ -124,8 +138,8 @@ def load_and_cache_training(args):
 
     features_filename = os.path.join(args.cache_dir, 'features{}{}{}'.format(only_context_str, cutoff_str, 'train'))
     # tokenizer should already be loaded but this is just making damn sure
-    tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict_{}.py'.format(args.tokenizer_name))
-    vocabulary_filename = os.path.join(args.cache_dir, 'vocabulary_{}.py'.format(args.tokenizer_name))
+    tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict.py')
+    vocabulary_filename = os.path.join(args.cache_dir, 'vocabulary.py')
 
     if os.path.exists(features_filename) and os.path.exists(tokenizer_filename) and os.path.exists(vocabulary_filename) and not args.overwrite_cache_dir:
         logger.info('Loading features from ({})'.format(features_filename))
@@ -157,7 +171,7 @@ def load_and_cache_training(args):
 
         assert save_graph(args, knowledge_base) == -1
 
-    return my_tokenizer, dataset, knowledge_base
+    return dataset, knowledge_base
 
 
 def train(args, dataset, model, optimizer):
@@ -176,8 +190,9 @@ def train(args, dataset, model, optimizer):
     for epoch, _ in enumerate(train_iterator):
         epoch_iterator = tqdm(train_dataloader, desc="Iteration, batch size {}".format(args.batch_size))
 
-        num_training_correct = 0
-        num_training_seen = 0
+        # index 0 is context, index 1 is questions
+        num_training_correct = np.array([0]*2)
+        num_training_seen = np.array([0]*2)
         total_error = 0
 
         for iterate, batch in enumerate(epoch_iterator):
@@ -195,7 +210,7 @@ def train(args, dataset, model, optimizer):
 
             # send through model
             model.train()
-            error, predictions = model(training=True, **inputs)
+            error, softmaxed_scores = model(training=True, **inputs)
 
             # backwards pass
             error.backward()
@@ -211,55 +226,76 @@ def train(args, dataset, model, optimizer):
 
             logger.info('The error for this epoch is {}'.format(round(total_error/(iterate + 1), 4)))
 
-            num_training_seen += int(inputs['labels'].shape[0])
-            num_training_correct += int(sum([inputs['labels'][i, p].item() for i, p in zip(range(inputs['labels'].shape[0]), predictions)]))
+            def correct_update(sentence_type, correct):
+                temp = [0., 0.]
+                temp[sentence_type] = correct
+                return temp
+
+            # calculate prediction
+            predictions = torch.argmax(softmaxed_scores, dim=1)
+
+            num_training_seen = np.add(num_training_seen, [inputs['sentence_type'].shape[0] - sum(inputs['sentence_type']), sum(inputs['sentence_type'])])
+            correct_list = [inputs['labels'][i, p].item() for i, p in zip(range(inputs['labels'].shape[0]), predictions)]
+            num_training_correct = np.sum([correct_update(st, c) for st, c in zip(inputs['sentence_type'], correct_list)], axis=0, dtype=np.int)
+
             logger.info('The training total for this epoch correct is {} out of {} for a percentage of {}'.format(
-                num_training_correct, num_training_seen, round(num_training_correct/num_training_seen, 2)))
+                sum(num_training_correct), sum(num_training_seen), round(sum(num_training_correct)/float(sum(num_training_seen)), 3)))
+
+            for nind, (nc, ns) in enumerate(zip(num_training_correct, num_training_seen)):
+                if ns == 0:
+                    logger.info('No examples of type "{}" seen during this epoch'.format(['context', 'mc question'][nind]))
+                    continue
+                logger.info('The training total correct for type {} is {} out of {} for a percentage of {}'.format(
+                    ['context', 'mc question'][nind], nc, ns, round(nc/float(ns), 3)
+                ))
 
             if global_step is not 0 and global_step % args.global_save_step == 0:
                 assert save_model_params(args=args, checkpoint=global_step, model=model) == -1
 
                 if args.evaluate_during_training:
-                    assert evaluate(args, subset='dev') == -1
+                    assert evaluate(args, subset='dev', all_models=False) == -1
 
             global_step += 1
 
     assert save_model_params(args=args, checkpoint=global_step, model=model) == -1
 
 
-def evaluate(args, subset):
+def evaluate(args, subset, all_models=False):
     assert subset in ['dev', 'test'], 'subset must be one of "test" or "dev"'
 
-    # get questions from appropriate subset
-    dataset, model = load_and_cache_evaluation(args, subset)
+    # get questions from appropriate subset, loads latest model
+    dataset, models_checkpoints = load_and_cache_evaluation(args, subset, all_models)
 
-    model = model.to(args.device)
+    for (model, checkpoint) in models_checkpoints:
 
-    # set up dataset in a sampler
-    # use pytorch data loaders to cycle through the data,
-    # train_sampler = SequentialSampler(dataset)
-    # train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=len(dataset))
+        model = model.to(args.device)
 
-    logging.info('Beggining to evaluate {} subset'.format(subset))
+        logging.info('Begining to evaluate {} subset using model from checkpoint {}'.format(subset, checkpoint))
 
-    # should be whole thing
-    batch = dataset.tensors
+        # should be whole thing
+        batch = dataset.tensors
 
-    # get batch
-    batch = tuple(t.to(args.device) for t in batch)
-    inputs = {'input_ids': batch[0],
-              'input_mask': batch[1],
-              'labels': None,
-              }
-    labels = batch[2]
+        # get batch
+        batch = tuple(t.to(args.device) for t in batch)
+        inputs = {'input_ids': batch[0],
+                  'input_mask': batch[1],
+                  'labels': None,
+                  }
+        labels = batch[2]
 
-    _, predictions = model(training=False, **inputs)
+        _, softmaxed_scores = model(training=False, **inputs)
 
-    num_training_seen = int(labels.shape[0])
-    num_training_correct = int(
-        sum([labels[i, p].item() for i, p in zip(range(labels.shape[0]), predictions)]))
-    logger.info('In {}: The number total correct is {} out of {} for a percentage of {}'.format(subset,
-        num_training_correct, num_training_seen, round(num_training_correct / num_training_seen, 2)))
+        # calculate prediction
+        predictions = torch.argmax(softmaxed_scores, dim=1)
+
+        num_training_seen = int(labels.shape[0])
+        num_training_correct = int(
+            sum([labels[i, p].item() for i, p in zip(range(labels.shape[0]), predictions)]))
+        logger.info('In {}: The number total correct is {} out of {} for a percentage of {}'.format(subset,
+            num_training_correct, num_training_seen, round(num_training_correct / num_training_seen, 2)))
+
+        if args.do_ablation:
+            assert ablation(args, subset, model, checkpoint, dataset) == -1
 
     return -1
 
@@ -301,10 +337,6 @@ def main():
                             help='Directory where output should be written')
         parser.add_argument('--cache_dir', default='saved/', type=str,
                             help='Directory where saved parameters should be written')
-        parser.add_argument('--tokenizer_name', default='bert-base-uncased', type=str,
-                            help='Name of the tokenizer to be used in tokenizing the strings')
-        parser.add_argument('--tokenizer_model', default='bert', type=str,
-                            help='Model of the tokenizer to be used in tokenizing the strings (bert, albert etc.)')
         parser.add_argument('--cutoff', default=None, type=int,
                             help='Number of examples to cutoff at if testing code')
         parser.add_argument('--overwrite_output_dir', action='store_true',
@@ -315,7 +347,7 @@ def main():
                             help='bool used to overwrite any saved parameters sharing name of domain words in use')
         parser.add_argument('--seed', default=1234, type=int,
                             help='Seed for consistent randomization')
-        parser.add_argument('--max_length', default=128, type=int,
+        parser.add_argument('--max_length', default=75, type=int,
                             help='maximum length of tokens in a sentence, anything longer is cutoff')
         parser.add_argument('--do_lower_case', action='store_true',
                             help='Convert all tokens to lower case')
@@ -353,6 +385,10 @@ def main():
                             help='Evaluate latest model on dev set')
         parser.add_argument('--evaluate_test', action='store_true',
                             help='Evaluate latest model on test set')
+        parser.add_argument('--evaluate_all_models', action='store_true',
+                            help='Evaluate all checkpoints in relevant output directory')
+        parser.add_argument('--do_ablation', action='store_true',
+                            help='Within evaluate do an ablation study.')
 
         args = parser.parse_args()
     else:
@@ -361,23 +397,23 @@ def main():
                 self.data_dir = '../ARC/ARC-with-context/'
                 self.output_dir = 'output/'
                 self.cache_dir = 'saved/'
-                self.tokenizer_name = 'bert-base-uncased'
-                self.tokenizer_model = 'bert'
-                self.cutoff = 50
+                self.cutoff = 500
                 self.overwrite_output_dir = True
-                self.overwrite_cache_dir = True
+                self.overwrite_cache_dir = False
                 self.seed = 1234
                 self.max_length = 128
                 self.do_lower_case = True
                 self.no_gpu = False
-                self.batch_size = 2
+                self.batch_size = 25
                 self.epochs = 3
-                self.global_save_step = 1
-                self.evaluate_during_training = True
-                self.train = True
-                self.evaluate_dev = False
+                self.global_save_step = 2
+                self.evaluate_during_training = False
+                self.train = False
+                self.evaluate_dev = True
                 self.evaluate_test = False
-                self.clear_output_dir = True
+                self.clear_output_dir = False
+                self.do_ablation = True
+                self.evaluate_all_models = True
 
                 self.domain_words = ['moon', 'earth']
                 self.only_context = True
@@ -406,6 +442,9 @@ def main():
         raise Exception('Cache directory does not exist here ({})'.format(args.cache_dir))
     if not os.path.exists(args.data_dir):
         raise Exception('Data directory does not exist here ({})'.format(args.data_dir))
+    if not args.train and (args.evaluate_test or args.evaluate_dev) and args.clear_output_dir:
+        raise Exception('You are clearing the output directory without training and asking to evaluate on the test and/or dev set!\n'
+                        'Fix one of --train, --evaluate_test, --evaluate_dev, or --clear_output_dir')
 
     assert 0 <= np.sqrt(args.edge_parameter/args.pmi_threshold) <= 1, "Edge parameter and pmi threshold won't work together"
     assert 0 <= np.sqrt(args.edge_parameter) <= 1, "Edge parameter won't work, needs to be less"
@@ -461,7 +500,7 @@ def main():
 
     if args.train:
         # load the examples and features, build the tokenizer if not already implemented, and the knowledge base
-        my_tokenizer, dataset, knowledge_base = load_and_cache_training(args)
+        dataset, knowledge_base = load_and_cache_training(args)
 
         # Load models or randomly initialize, everything after the randomization should be doable in a single function
         model = GraphBlock(args, knowledge_base)
@@ -477,20 +516,18 @@ def main():
 
     # do evaluation here for dev and test
     if args.evaluate_dev:
-        evaluate(args, subset='dev')
+        evaluate(args, subset='dev', all_models=args.evaluate_all_models)
 
     if args.evaluate_test:
-        evaluate(args, subset='test')
+        evaluate(args, subset='test', all_models=args.evaluate_all_models)
 
 
 if __name__ == '__main__':
     main()
 
 
-# TODO implement getting challenge and easy questions possibly for evaluating only
 # TODO explore adding more parameters to models
 # TODO try resampling examples between epochs
 # TODO Think about what kind of analysis can be done with what I currently have, what do I want to write about? What kind of ablation study or GNN analysis can I perform?
-# TODO make edges have a posterior to determine how effective edges were
 
 
