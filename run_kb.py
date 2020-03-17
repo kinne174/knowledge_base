@@ -227,8 +227,8 @@ def train(args, dataset, model, optimizer):
             logger.info('The error for this epoch is {}'.format(round(total_error/(iterate + 1), 4)))
 
             def correct_update(sentence_type, correct):
-                temp = [0., 0.]
-                temp[sentence_type] = correct
+                temp = [0, 0]
+                temp[sentence_type] = int(correct)
                 return temp
 
             # calculate prediction
