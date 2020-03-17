@@ -5,6 +5,7 @@ import logging
 import math
 import spacy
 import os
+import getpass
 
 # logging
 logger = logging.getLogger(__name__)
@@ -50,7 +51,10 @@ def compute_edge_values(input_ids, num_nodes, threshold):
 
 def get_word_embeddings(args, vocabulary):
     # load in spacy model for word embeddings
-    nlp = spacy.load("en_core_web_md", disable=['ner', 'parser'])
+    if not getpass.getuser() == 'Mitch':
+        nlp = spacy.load("en_core_web_lg", disable=['ner', 'parser'])
+    else:
+        nlp = spacy.load("en_core_web_md", disable=['ner', 'parser'])
     # tokens = nlp(' '.join(vocabulary))
 
     embeddings = torch.empty((len(vocabulary), args.word_embedding_dim))
