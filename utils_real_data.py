@@ -31,11 +31,14 @@ class ArcExample(object):
 
 
 def domain_finder(args, question, contexts, answers, evaluating):
+    # determines if there are words within the question and/ or context that matches the domain words
 
+    # find if any of the domain words are in the tokenization of the question
     question_words = word_tokenize(question.lower())
     question_in_domain = any([dw in question_words for dw in args.domain_words])
 
     if not question_in_domain:
+        # if the question has a domain word automatically save it, otherwise check the answers too
         for answer in answers:
             answer_words = word_tokenize(answer.lower())
             question_in_domain = any([dw in answer_words for dw in args.domain_words])
@@ -43,6 +46,7 @@ def domain_finder(args, question, contexts, answers, evaluating):
             if question_in_domain:
                 break
 
+    # find all sentences which contain any of the domain words
     all_context_sentences_in_domain = []
     if not evaluating:
         for context in contexts:
@@ -58,7 +62,9 @@ def domain_finder(args, question, contexts, answers, evaluating):
 
 
 def attention_loader(args, words, model, word_to_idx, counter):
+    # uses model from train_noise to select the 'most important' words
 
+    # the model has it's own tokenizing so if the word is not there have to use the noise/ pad embedding
     tokens = []
     for word_ind, word in enumerate(words):
         if word in word_to_idx:
@@ -66,22 +72,28 @@ def attention_loader(args, words, model, word_to_idx, counter):
         else:
             tokens.append(0)
 
+    # send the sentence through the model
     tokens = torch.tensor(tokens, dtype=torch.long).unsqueeze(0)
 
+    # predictions is a vector the length of the sentence with a number between 0, 1 for each word representing how important the model believes it is, closer to 1 is more important
     predictions, _ = model(input_ids=tokens, add_special_tokens=True)
 
     assert tokens.shape == predictions.shape
 
     predictions = predictions.squeeze()
 
+    # how many of the words are being replaced
     window_size = args.attention_window_size
 
+    # every consecutive window_size of words gets their importance averaged
     changed_inds_and_scores = [(list(range(i, i+window_size)), torch.mean(predictions[i:(i+window_size)]).item()) for i in range(predictions.shape[0] - window_size + 1)]
 
+    # find the indices with the largest average importance
     best_inds = max(changed_inds_and_scores, key=itemgetter(1))[0]
 
     changed_inds = [1 if i in best_inds else 0 for i in range(len(words))]
 
+    # reassign most important words from the vocabulary
     noise_sentences = []
     random_words_weights = [(w, counter[w]) for w in word_to_idx.keys() if w not in stop_words and word_to_idx[w] > 2]
     random_words, weights = map(list, zip(*random_words_weights))
@@ -94,7 +106,7 @@ def attention_loader(args, words, model, word_to_idx, counter):
 
 
 def examples_loader(args, evaluate_subset=None):
-    # returns an object of type ArcExample similar to hugging face transformers
+    # returns a list of objects of type ArcExample similar to hugging face transformers
 
     # bad ids, each has at least one answer that does not contain any context
     # if another question answer task is used this will need to be fixed
@@ -103,6 +115,7 @@ def examples_loader(args, evaluate_subset=None):
     subsets = ['train', 'dev', 'test']
     evaluating = False
 
+    # whole function has different rules for evaluating, namely only looks at questions instead of corpus and context
     if evaluate_subset is not None:
         assert evaluate_subset in ['dev', 'test']
         evaluating = True
@@ -116,6 +129,7 @@ def examples_loader(args, evaluate_subset=None):
 
     model = model.to(args.device)
 
+    # can look at the questions and their context or the corpus
     if args.only_context or evaluating:
 
         break_flag = False
@@ -156,11 +170,14 @@ def examples_loader(args, evaluate_subset=None):
                     contexts = [c['para'] for c in line['question']['choices']]
                     answer_texts = [c['text'] for c in line['question']['choices']]
 
+                    # determine if either question or any context sentences contain domain words
                     question_in_domain, sentences_in_domain = domain_finder(args, question_text, contexts, answer_texts, evaluating)
 
                     # if question is in the domain then create an ArcExample and add it to examples
                     # question_in_domain should be a bool
                     if question_in_domain and (subset == 'train' or evaluating):
+
+                        # split answers to four replicates of the question
                         question_answer_sentences = []
                         question_answer_indices = []
                         for answer in answer_texts:
@@ -168,6 +185,7 @@ def examples_loader(args, evaluate_subset=None):
                             question_answer_sentences.append(question_answer_text)
                             question_answer_indices.append([0]*len(' '.split(question_text)) + [1]*len(' '.split(answer)))
 
+                        # add all four sentences with the corresponding label
                         all_examples.append(ArcExample(example_id=id,
                                                        sentences=question_answer_sentences,
                                                        changed_words_indices=question_answer_indices,
@@ -189,14 +207,14 @@ def examples_loader(args, evaluate_subset=None):
                             if len(sentence_words) <= 5:
                                 continue
 
+                            # for each sentence return which indices were changed and the three new sentences with words replaced at those indices
                             changed_words_indices, noise_sentences = attention_loader(args, sentence_words, model, word_to_idx, counter)
 
                             assert len(changed_words_indices) == len(sentence_words), 'indices length and words length do not match'
 
-                            # noise_sentences = noisy_sentences(sentence_words, changed_words_indices)
-
                             sentence_label_tuples = [(sentence, 1)] + [(ns, 0) for ns in noise_sentences]
 
+                            # this is probably(absolutely) unnecessary but makes me feel better
                             random.shuffle(sentence_label_tuples)
 
                             all_sentences = [t[0] for t in sentence_label_tuples]
@@ -212,6 +230,7 @@ def examples_loader(args, evaluate_subset=None):
                                 logger.info('Writing {} example.'.format(logger_ind * 100))
                                 logger_ind += 1
 
+                    # if testing code don't get all available features, but cutoff at a certain length to keep data files small
                     if args.cutoff is not None and len(all_examples) >= args.cutoff:
                         all_examples = all_examples[:args.cutoff]
                         break_flag = True
@@ -221,31 +240,34 @@ def examples_loader(args, evaluate_subset=None):
                 break
 
     else:
+        # go through corpus to find sentences that contain the domain words
         data_filename = '../ARC/ARC-V1-Feb2018-2/ARC_Corpus.txt'
         with codecs.open(data_filename, 'r', encoding='utf-8', errors='ignore') as corpus:
 
             # this will show up when running on console
             for line in tqdm.tqdm(corpus, desc='Searching corpus for examples.', mininterval=1):
 
+                # tokenize and remove words that contain non alphanumeric characters
                 sentence_words = word_tokenize(line.lower())
                 sentence_words = [w for w in sentence_words if w.isalnum()]
                 sentence = ' '.join(sentence_words)
 
+                # determine if the sentence has any domain words
                 if not any([dw in sentence_words for dw in args.domain_words]):
                     continue
 
                 if len(sentence_words) <= 5:
                     continue
 
+                # for each sentence return which indices were changed and the three new sentences with words replaced at those indices
                 changed_words_indices, noise_sentences = attention_loader(args, sentence_words, model, word_to_idx, counter)
 
                 assert len(changed_words_indices) == len(
                     sentence_words), 'indices length and words length do not match'
 
-                # noise_sentences = noisy_sentences(sentence_words, changed_words_indices)
-
                 sentence_label_tuples = [(sentence, 1)] + [(ns, 0) for ns in noise_sentences]
 
+                # this is probably(absolutely) unnecessary but makes me feel better
                 random.shuffle(sentence_label_tuples)
 
                 all_sentences = [t[0] for t in sentence_label_tuples]
@@ -261,6 +283,7 @@ def examples_loader(args, evaluate_subset=None):
                     logger.info('Writing {} example.'.format(logger_ind * 100))
                     logger_ind += 1
 
+                # if testing code don't get all available features, but cutoff at a certain length to keep data files small
                 if args.cutoff is not None and len(all_examples) >= args.cutoff:
                     all_examples = all_examples[:args.cutoff]
                     break

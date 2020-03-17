@@ -18,21 +18,25 @@ class GraphBlock(nn.Module):
         super(GraphBlock, self).__init__()
 
         self.args = args # the input from user
-        # self.training = training # a bool if the model is training or not
 
+        # Graph Neural Network
         self.knowledge_base = knowledge_base.to(args.device)
 
+        # simple models
         self.linear1 = nn.Linear(in_features=args.word_embedding_dim, out_features=args.mlp_hidden_dim)
         self.lstm = nn.LSTM(args.mlp_hidden_dim, args.lstm_hidden_dim)
         self.linear2 = nn.Linear(args.lstm_hidden_dim, 1)
 
         self.loss_function = nn.BCEWithLogitsLoss()
 
+        # dicts to help with posterior edge values used in evaluation
         self.good_edge_connections = Counter() if good_counter is None else good_counter
         self.all_edge_connections = Counter() if all_counter is None else all_counter
 
     @classmethod
     def from_pretrained(cls, args, knowledge_base, good_filename=None, all_filename=None):
+
+        # if files exist for counters load them, the parameters are done outside
         if good_filename is None and all_filename is None:
             return cls(args, knowledge_base)
 
@@ -45,6 +49,7 @@ class GraphBlock(nn.Module):
 
     def forward(self, training, **inputs):
         '''
+        :param training: bool if training or evaluating
         :param knowledge_base: DGL graph that needs to be subsetted based on the inputs
         :param **inputs: 'input_ids': batch size x 4 x args.max_length , 'label' : batch size * 4 - one hot vector
         :return: error of predicted versus real labels
@@ -54,7 +59,7 @@ class GraphBlock(nn.Module):
         input_mask = inputs['input_mask']
         labels = inputs['labels']
 
-        # for evaluation assume they come in one at a time
+        # for evaluation assume they come in one at a time, 1 dimensional
 
         batch_size = input_ids.shape[0]
 
@@ -64,6 +69,8 @@ class GraphBlock(nn.Module):
             labels = labels.to(self.args.device)
 
         all_answer_scores = torch.empty((batch_size, 4)).to(self.args.device)
+
+        # keep track of these to update good and all edge connections
         all_edge_data = []
         all_ids_mapping = []
 
@@ -116,6 +123,7 @@ class GraphBlock(nn.Module):
             # calculate prediction
             predictions = torch.argmax(softmaxed_scores, dim=1)
 
+            # update good and all edge connections, if the model was correct add these edges to good connections
             correct = [labels[i, p].item() for i, p in zip(range(labels.shape[0]), predictions)]
             for c, batch_edges, batch_ids_map in zip(correct, all_edge_data, all_ids_mapping):
                 pairings = []
@@ -123,6 +131,7 @@ class GraphBlock(nn.Module):
                     # maps from subsetted node indices to original node indices
                     reverse_ids_map = {v: k for k, v in ids_map.items()}
 
+                    # map from subset to original and add these connections to current pairings
                     pairings.extend([(reverse_ids_map[s], reverse_ids_map[r]) for s, r in zip(edges[0].tolist(), edges[1].tolist())])
 
                 pairings_set = set(pairings)
@@ -143,39 +152,51 @@ class GraphBlock(nn.Module):
 
         unique_ids = torch.unique(input_ids).tolist()
 
+        # use adjancency matrix to find all edge connections in original graph
         adj_matrix = G.adjacency_matrix_scipy()
         assert adj_matrix.format == 'csr'
 
+        # indptr is a list of length num_rows + 1, for row i the column indices which data exists is located in indices[indptr[i]:indptr[i+1]]
+        # great explanation here: https://stackoverflow.com/questions/52299420/scipy-csr-matrix-understand-indptr
         indptr = adj_matrix.indptr.tolist()
         indices = adj_matrix.indices.tolist()
 
+        # keep track of all nodes and edges used
         all_nodes = []
         all_edges = []
         for ui in unique_ids:
             if indptr[ui+1] - indptr[ui] > 0:
+                # find all nodes current ui is connected to
                 col_indices = indices[indptr[ui]:indptr[ui+1]]
 
+                # keep all relevant nodes
                 all_nodes.extend(col_indices)
 
+                # keep all edges by defining sender<->receiver nodes
                 for ci in col_indices:
                     all_edges.append((ui, ci))
 
+        # only keep unique nodes
         all_nodes = list(set(all_nodes))
         all_nodes.sort()
 
         dest, src = map(list, zip(*all_edges))
 
+        # in subsetted graph nodes should be 0,1,...
         new_dest = [all_nodes.index(d) for d in dest]
         new_src = [all_nodes.index(s) for s in src]
 
         new_G = dgl.DGLGraph()
 
+        # new graph node data still used the old embedding indices, but this is why I had to map previously
         new_G.add_nodes(len(all_nodes))
         new_G.ndata['embedding'] = G.ndata['embedding'][all_nodes]
 
+        # add undirected edges
         new_G.add_edges(new_src, new_dest)
         new_G.add_edges(new_dest, new_src)
 
+        # old edges to represent undirectional graph and grab edge data from original graph
         src_dest = src + dest
         dest_src = dest + src
 
@@ -192,11 +213,13 @@ class GraphBlock(nn.Module):
         assert isinstance(G, dgl.DGLGraph)
 
         if not training:
+            # use posterior information to make new edges, the more times a connection was used in a correct answer the more weight it gets
             edges = G.edges()
 
             # map from subset node indices to original
             reverse_id_mapping = {v: k for k, v in id_mapping.items()}
 
+            # find edge values in original graph setting and use good and all connections dicts to calculate posterior value
             new_edge_values = []
             for s, r in zip(edges[0].tolist(), edges[1].tolist()):
                 old_s = reverse_id_mapping[s]
@@ -225,15 +248,17 @@ class GraphBlock(nn.Module):
 
             return G
 
-        edge_values = G.edata['value'].tolist()
+        else:  # if training
+            # randomly decide whether an edge exists (1) or not (0) depending on depressing for high probability and lifting for low probability transformation function
+            edge_values = G.edata['value'].tolist()
 
-        def f(edge_val, parameter):
-            return float(np.random.binomial(1, 1-math.sqrt(parameter/edge_val), None))  # make sure returning a float
+            def f(edge_val, parameter):
+                return float(np.random.binomial(1, 1-math.sqrt(parameter/edge_val), None))  # make sure returning a float
 
-        new_edge_values = torch.tensor([f(e, self.args.edge_parameter) for e in edge_values]).reshape((-1,))
+            new_edge_values = torch.tensor([f(e, self.args.edge_parameter) for e in edge_values]).reshape((-1,))
 
-        new_edge_values = new_edge_values.to(self.args.device)
+            new_edge_values = new_edge_values.to(self.args.device)
 
-        G.edata['value'] = new_edge_values
+            G.edata['value'] = new_edge_values
 
-        return G
+            return G

@@ -55,10 +55,10 @@ def get_word_embeddings(args, vocabulary):
         nlp = spacy.load("en_core_web_lg", disable=['ner', 'parser'])
     else:
         nlp = spacy.load("en_core_web_md", disable=['ner', 'parser'])
-    # tokens = nlp(' '.join(vocabulary))
 
     embeddings = torch.empty((len(vocabulary), args.word_embedding_dim))
 
+    # get the GloVe embedding for each word or use noise if one does not exist
     for token_index, token in enumerate(vocabulary):
         if nlp.vocab.has_vector(token):
             embeddings[token_index, :] = torch.tensor(nlp.vocab.get_vector(token))
@@ -74,25 +74,33 @@ def build_graph(args, dataset, vocabulary):
 
     num_nodes = len(vocabulary)
 
+    # get all input_ids and squeeze to the first dimension
     input_ids = dataset.tensors[0]
     input_ids = input_ids.reshape((-1, input_ids.shape[-1]))
+
+    # don't want to use basically same sentences so randomly grab 1 sentence out of each group to use as ids to build graph
     random_indices = torch.randint(low=0, high=4, size=(dataset.tensors[0].shape[0],)) + torch.arange(start=0, end=input_ids.shape[0], step=4)
     randomed_inputed_ids = input_ids[random_indices, :]
+
+    # get "mutual word frequency" and use as edge values
     edge_values = compute_edge_values(randomed_inputed_ids, num_nodes, args.pmi_threshold)
 
     g = dgl.DGLGraph()
 
     g.add_nodes(num_nodes)
 
+    # get and assign embeddings
     embeddings = get_word_embeddings(args, vocabulary)
     g.ndata['embedding'] = embeddings
 
+    # find where the edges exist and assign them to sending and receiving nodes
     non_zero_edge_values = edge_values.nonzero(as_tuple=False)
     dest = non_zero_edge_values[:, 0]
     source = non_zero_edge_values[:, 1]
 
     g.add_edges(dest, source)
 
+    # assign actual edge values to previous supplied existing edges
     non_zero_edge_values = edge_values.nonzero(as_tuple=True)
     edges_to_add = edge_values[non_zero_edge_values]
     g.edges[dest, source].data['value'] = edges_to_add
@@ -101,6 +109,7 @@ def build_graph(args, dataset, vocabulary):
 
 
 def save_graph(args, G):
+    # graph is dependent on cutoffing so good to add
     cutoff_str = '' if args.cutoff is None else '_cutoff{}'.format(args.cutoff)
     graph_filename = os.path.join(args.cache_dir, 'graph{}.py'.format(cutoff_str))
 

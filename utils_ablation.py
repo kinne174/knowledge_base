@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 def ablation(args, subset, model, checkpoint, dataset):
 
+    # for speeding up computation load in mapping dict for good edges, keys are senders nodes; values are all receiver nodes
     good_edge_connections = model.good_edge_connections
     sender_good = {}
     for kg in good_edge_connections.keys():
@@ -22,6 +23,7 @@ def ablation(args, subset, model, checkpoint, dataset):
 
     all_edge_connections = model.all_edge_connections
 
+    # create the ablation files in their own directory
     ablation_dir = os.path.join(args.output_dir, 'ablation_{}'.format(subset))
 
     if not os.path.exists(ablation_dir):
@@ -29,9 +31,11 @@ def ablation(args, subset, model, checkpoint, dataset):
 
     ablation_filename = os.path.join(ablation_dir, 'checkpoint_{}.txt'.format(checkpoint))
 
+    # load in tokenizer for the myind_to_word dict to help translate the ids back to words
     my_tokenizer = MyTokenizer.load_tokenizer(args, evaluating=True)
     myind_to_word = my_tokenizer.myind_to_word
 
+    # load in lines one at a time
     train_sampler = SequentialSampler(dataset)
     train_dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=1)
 
@@ -64,7 +68,10 @@ def ablation(args, subset, model, checkpoint, dataset):
                                  range(input_ids.shape[1])]
             if False not in change_index_list:
                 continue
+
             change_index = change_index_list.index(False)
+
+            # get first token which is padding to separate the answers
             pad_indices = [input_masks[i, :].tolist().index(0) for i in range(input_masks.shape[0])]
 
             if not all([pi > change_index for pi in pad_indices]):
@@ -74,6 +81,8 @@ def ablation(args, subset, model, checkpoint, dataset):
             answers_ids = [input_ids[i, change_index:pad_ind] for i, pad_ind in zip(range(input_ids.shape[0]), pad_indices)]
 
             question_text = ' '.join([myind_to_word[qi.item()] for qi in question_ids])
+
+            # get all answer features to display
             answers_text = [' '.join([myind_to_word[ai.item()] for ai in answer_id]) for answer_id in answers_ids]
             answer_choice_text = ['A.', 'B.', 'C.', 'D.']
             correct_label = [' ' if lab == 0 else '*' for lab in inputs['labels']]
@@ -87,7 +96,7 @@ def ablation(args, subset, model, checkpoint, dataset):
 
             # print out the batch_ind then the question text then newline
             af.write('{}. {}\n'.format(batch_ind+1, question_text))
-            # print out a * for correct answer # for prediction rounded softmaxed score and then answer text for each of four options
+            # print out a * for correct answer, # for prediction, rounded softmaxed score, and then answer text for each of four options
             for (cl, pl, ss, act, at) in answer_features:
                 af.write('{} {} {} {}{}\n'.format(cl, pl, ss, act, at))
 
@@ -110,7 +119,7 @@ def ablation(args, subset, model, checkpoint, dataset):
 
                         relevant_best_connections[(ui, id2)] = good_edge_connections[(ui, id2)]/float(all_edge_connections[(ui, id2)])
 
-            # print out top k in percentage
+            # print out top n=10 in percentage
             best_connections = [(k, v) for k, v in relevant_best_connections.items()]
             best_connections.sort(key=lambda t: t[1], reverse=True)
 

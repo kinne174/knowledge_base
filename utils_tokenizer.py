@@ -12,14 +12,18 @@ logger = logging.getLogger(__name__)
 
 class MyTokenizer(object):
     def __init__(self, args, old_node_indices_dict=None, old_vocabulary_dict=None):
-        self.word_to_my_ind = {} if old_node_indices_dict is None else old_node_indices_dict
 
+        # mirror dicts to help with transition from token to word and vice versa
+        self.word_to_my_ind = {} if old_node_indices_dict is None else old_node_indices_dict
         self.myind_to_word = {} if old_vocabulary_dict is None else old_vocabulary_dict
 
     def encode(self, sentence, do_lower_case):
+        # expects one sentence at a time
 
+        # seperate words/ punctuation within the sentence
         words = word_tokenize(sentence)
 
+        # assign each word the proper token or the [UNK] if not in the token dict
         node_ids = []
         for word in words:
             word = word.lower() if do_lower_case else word
@@ -33,6 +37,7 @@ class MyTokenizer(object):
         return node_ids
 
     def save_tokenizer(self, args):
+        # save the two necessary dicts
         node_indices_file = os.path.join(args.cache_dir, 'tokenizerDict.py')
         logger.info('Saving tokenizer with {} ids to {}'.format(len(self.word_to_my_ind), node_indices_file))
 
@@ -52,6 +57,7 @@ class MyTokenizer(object):
         node_indices_file = os.path.join(args.cache_dir, 'tokenizerDict.py')
         vocabulary_file = os.path.join(args.cache_dir, 'vocabulary.py')
 
+        # if the files exist and not overwriting cache load pre trained tokenizer, otherwise overwrite
         if os.path.exists(node_indices_file) and os.path.exists(vocabulary_file) and (not args.overwrite_cache_dir or evaluating):
             logger.info('Loding pretrained tokenizer from {} and {}'.format(node_indices_file, vocabulary_file))
 
@@ -66,37 +72,45 @@ class MyTokenizer(object):
         return cls(args)
 
     def build_and_save_tokenizer(self, args, examples):
+        # create tokenizer from the examples, each word gets a unique id
         counter = Counter()
+        temp_word_to_my_ind = {}
 
         for example_ind, example in enumerate(examples):
             assert isinstance(example, ArcExample)
 
             for sentence in example.sentences:
 
+                # separate words/ punctuation
                 words = word_tokenize(sentence)
 
+                # for each word if an id has not been created, create one based on the number of words currently in dict
                 for word in words:
                     word = word.lower() if args.do_lower_case else word
-                    if word not in self.word_to_my_ind:
-                        current_word_myid = len(self.word_to_my_ind)
-                        self.word_to_my_ind[word] = current_word_myid
+                    if word not in temp_word_to_my_ind:
+                        current_word_myid = len(temp_word_to_my_ind)
+                        temp_word_to_my_ind[word] = current_word_myid
 
+                # to help with words being mapped to [UNK] create a counter so can threshold words with small counts
                 counter.update(words)
 
-        vocabulary_size = len(self.word_to_my_ind)
+        # reassign low threshold words to a random number not yet seen (len vocabulary in this instance)
+        vocabulary_size = len(temp_word_to_my_ind)
         num_thrown_to_unk = 0
-        for id, count in counter.items():
+        for word, count in counter.items():
             if count <= args.common_word_threshold:
-                self.word_to_my_ind[id] = vocabulary_size
+                temp_word_to_my_ind[word] = vocabulary_size
                 num_thrown_to_unk += 1
 
         logger.info('The number of words replaced by [UNK] when building vocabulary is {}'.format(num_thrown_to_unk))
 
-        node_indices_list = list(self.word_to_my_ind.items())
+        # order by count and find where the cutoff for minimal used words
+        node_indices_list = list(temp_word_to_my_ind.items())
         # TODO there's a faster way to do this by summing, rather than sorting, then can just compare for 'for loop'
         node_indices_list.sort(key=lambda t: t[1], reverse=False)
         first_unk_index = [t[1] for t in node_indices_list].index(vocabulary_size)
 
+        # re assign ids based on count and assign all minimum use words to 1<->[UNK]
         for ind, (word, _) in enumerate(node_indices_list):
             if ind < first_unk_index:
                 self.myind_to_word[ind+2] = word
@@ -104,14 +118,17 @@ class MyTokenizer(object):
             else:
                 self.word_to_my_ind[word] = 1
 
+        # give 0 to [PAD] and 1 to [UNK]
         self.myind_to_word[1] = '[UNK]'
         self.myind_to_word[0] = '[PAD]'
 
+        # save tokenizer dicts
         assert self.save_tokenizer(args) == -1
 
         return -1
 
     def vocabulary(self):
+        # return list of all words in vocabulary
         vocab_tuples = list(self.myind_to_word.items())
 
         vocab_tuples.sort(key=lambda t: t[0], reverse=False)
