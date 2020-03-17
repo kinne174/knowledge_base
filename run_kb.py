@@ -69,7 +69,7 @@ def load_and_cache_evaluation(args, subset, all_models):
     logging.info('For evaluating {} subset loading tokenizer from {} and {}'.format(subset,
                                                                                     tokenizer_filename,
                                                                                     vocabulary_filename))
-    my_tokenizer = MyTokenizer.load_tokenizer(args)
+    my_tokenizer = MyTokenizer.load_tokenizer(args, evaluating=True)
 
     feautres_filename = os.path.join(args.cache_dir, 'features_{}'.format(subset))
     if os.path.exists(feautres_filename):
@@ -131,7 +131,7 @@ def load_and_cache_evaluation(args, subset, all_models):
 
 
 def load_and_cache_training(args):
-    my_tokenizer = MyTokenizer.load_tokenizer(args)
+    my_tokenizer = MyTokenizer.load_tokenizer(args, evaluating=False)
 
     only_context_str = '_ONLYCONTEXT' if args.only_context else ''
     cutoff_str = '' if args.cutoff is None else '_cutoff{}'.format(args.cutoff)
@@ -401,7 +401,7 @@ def main():
                 self.overwrite_output_dir = True
                 self.overwrite_cache_dir = False
                 self.seed = 1234
-                self.max_length = 128
+                self.max_length = 75
                 self.do_lower_case = True
                 self.no_gpu = False
                 self.batch_size = 25

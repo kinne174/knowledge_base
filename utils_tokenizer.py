@@ -48,11 +48,11 @@ class MyTokenizer(object):
         return -1
 
     @classmethod
-    def load_tokenizer(cls, args):
+    def load_tokenizer(cls, args, evaluating):
         node_indices_file = os.path.join(args.cache_dir, 'tokenizerDict.py')
         vocabulary_file = os.path.join(args.cache_dir, 'vocabulary.py')
 
-        if os.path.exists(node_indices_file) and os.path.exists(vocabulary_file) and not args.overwrite_cache_dir:
+        if os.path.exists(node_indices_file) and os.path.exists(vocabulary_file) and (not args.overwrite_cache_dir or evaluating):
             logger.info('Loding pretrained tokenizer from {} and {}'.format(node_indices_file, vocabulary_file))
 
             with open(node_indices_file, 'rb') as tokenizer_reader:

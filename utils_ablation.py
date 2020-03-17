@@ -29,7 +29,7 @@ def ablation(args, subset, model, checkpoint, dataset):
 
     ablation_filename = os.path.join(ablation_dir, 'checkpoint_{}.txt'.format(checkpoint))
 
-    my_tokenizer = MyTokenizer.load_tokenizer(args)
+    my_tokenizer = MyTokenizer.load_tokenizer(args, evaluating=True)
     myind_to_word = my_tokenizer.myind_to_word
 
     train_sampler = SequentialSampler(dataset)
