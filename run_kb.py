@@ -20,7 +20,7 @@ from utils_ablation import ablation
 # logging
 logger = logging.getLogger(__name__)
 
-
+# set seed for randomization purposes
 def set_seed(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -60,7 +60,9 @@ def select_field(features, field):
 
 
 def load_and_cache_evaluation(args, subset, all_models):
+    # when evaluating find questions in a specific subset that contains the domain words
 
+    # make sure these files exist before progressing since, training is not guaranteed
     tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict.py')
     assert os.path.exists(tokenizer_filename), 'Cannot find tokenizer filename, this must exist to evaluate'
     vocabulary_filename = os.path.join(args.cache_dir, 'vocabulary.py')
@@ -69,8 +71,10 @@ def load_and_cache_evaluation(args, subset, all_models):
     logging.info('For evaluating {} subset loading tokenizer from {} and {}'.format(subset,
                                                                                     tokenizer_filename,
                                                                                     vocabulary_filename))
+    # load the tokenizer, files are loaded from within class
     my_tokenizer = MyTokenizer.load_tokenizer(args, evaluating=True)
 
+    # if features already exist then fetch otherwise create/ save
     feautres_filename = os.path.join(args.cache_dir, 'features_{}'.format(subset))
     if os.path.exists(feautres_filename):
         logger.info('Loading {} features'.format(subset))
@@ -83,15 +87,18 @@ def load_and_cache_evaluation(args, subset, all_models):
         logger.info('Saving {} features'.format(subset))
         torch.save(features, feautres_filename)
 
+    # create tensors from data to load into a dataset
     all_input_ids = torch.tensor(select_field(features, 'input_ids'), dtype=torch.long)
     all_input_mask = torch.tensor(select_field(features, 'input_mask'), dtype=torch.long)
     all_sentence_type = torch.tensor([f.sentence_type for f in features], dtype=torch.long).unsqueeze(1)
     all_labels = torch.tensor(label_map([f.label for f in features], num_choices=4), dtype=torch.float)
 
-    assert all(all_sentence_type == torch.ones_like(all_sentence_type))
+    # make sure all sentence types are that of a question
+    assert all(all_sentence_type == torch.ones_like(all_sentence_type)), 'Not all sentences are a question in {}'.format(subset)
 
     dataset = TensorDataset(all_input_ids, all_input_mask, all_labels)
 
+    # make sure the graph file exists and load it
     cutoff_str = '' if args.cutoff is None else '_cutoff{}'.format(args.cutoff)
     graph_filename = os.path.join(args.cache_dir, 'graph{}.py'.format(cutoff_str))
     assert os.path.exists(graph_filename)
@@ -107,12 +114,14 @@ def load_and_cache_evaluation(args, subset, all_models):
 
     checkpoints = [int(mf[index_:]) for mf in model_folders]
 
+    # if all the models are not being evaluted only grab the latest one
     if not all_models:
         max_checkpoint = max(checkpoints)
         model_folders_checkpoints = [(os.path.join(args.output_dir, 'model_checkpoint_{}'.format(max_checkpoint)), max_checkpoint)]
     else:
         model_folders_checkpoints = list(map(list, zip(model_folders, checkpoints)))
 
+    # load each model and combine with its checkpoint
     models_checkpoints = []
     for (mf, cp) in model_folders_checkpoints:
 
@@ -131,16 +140,20 @@ def load_and_cache_evaluation(args, subset, all_models):
 
 
 def load_and_cache_training(args):
+    # create/ save or load for training, main difference from evaluation is
     my_tokenizer = MyTokenizer.load_tokenizer(args, evaluating=False)
 
+    # label features if not using the corpus and/or if a cutoff is being used for code-testing purposes
     only_context_str = '_ONLYCONTEXT' if args.only_context else ''
     cutoff_str = '' if args.cutoff is None else '_cutoff{}'.format(args.cutoff)
 
     features_filename = os.path.join(args.cache_dir, 'features{}{}{}'.format(only_context_str, cutoff_str, 'train'))
+
     # tokenizer should already be loaded but this is just making damn sure
     tokenizer_filename = os.path.join(args.cache_dir, 'tokenizerDict.py')
     vocabulary_filename = os.path.join(args.cache_dir, 'vocabulary.py')
 
+    # fetch features or create/save them
     if os.path.exists(features_filename) and os.path.exists(tokenizer_filename) and os.path.exists(vocabulary_filename) and not args.overwrite_cache_dir:
         logger.info('Loading features from ({})'.format(features_filename))
         features = torch.load(features_filename)
@@ -155,6 +168,7 @@ def load_and_cache_training(args):
         logger.info('Saving features into {}'.format(features_filename))
         torch.save(features, features_filename)
 
+    # create tensors from data to load into a dataset
     all_input_ids = torch.tensor(select_field(features, 'input_ids'), dtype=torch.long)
     all_input_mask = torch.tensor(select_field(features, 'input_mask'), dtype=torch.long)
     all_sentence_type = torch.tensor([f.sentence_type for f in features], dtype=torch.long).unsqueeze(1)
@@ -162,6 +176,7 @@ def load_and_cache_training(args):
 
     dataset = TensorDataset(all_input_ids, all_input_mask, all_sentence_type, all_labels)
 
+    # fetch or create/save graph
     graph_filename = os.path.join(args.cache_dir, 'graph{}.py'.format(cutoff_str))
     if os.path.exists(graph_filename) and not args.overwrite_cache_dir:
         knowledge_base = load_graph(args)
@@ -198,6 +213,7 @@ def train(args, dataset, model, optimizer):
         for iterate, batch in enumerate(epoch_iterator):
             logger.info('Epoch: {}, Batch: {}'.format(epoch, iterate))
 
+            # zero out previous runs
             model.zero_grad()
 
             # get batch
@@ -226,6 +242,7 @@ def train(args, dataset, model, optimizer):
 
             logger.info('The error for this epoch is {}'.format(round(total_error/(iterate + 1), 4)))
 
+            # helper function to update the correct responses in questions and contexts
             def correct_update(sentence_type, correct):
                 temp = [0, 0]
                 temp[sentence_type] = int(correct)
@@ -234,9 +251,10 @@ def train(args, dataset, model, optimizer):
             # calculate prediction
             predictions = torch.argmax(softmaxed_scores, dim=1)
 
-            num_training_seen = np.add(num_training_seen, [inputs['sentence_type'].shape[0] - sum(inputs['sentence_type']), sum(inputs['sentence_type'])], dtype=np.int)
+            # num training seen/ correct divided up by context and questions
+            num_training_seen = np.add(num_training_seen, np.array([inputs['sentence_type'].shape[0] - sum(inputs['sentence_type']), sum(inputs['sentence_type'])], dtype=int), dtype=int)
             correct_list = [inputs['labels'][i, p].item() for i, p in zip(range(inputs['labels'].shape[0]), predictions)]
-            num_training_correct = np.add(num_training_correct, np.sum([correct_update(st, c) for st, c in zip(inputs['sentence_type'], correct_list)], axis=0), dtype=np.int)
+            num_training_correct = np.add(num_training_correct, np.sum([correct_update(st, c) for st, c in zip(inputs['sentence_type'], correct_list)], axis=0), dtype=int)
 
             logger.info('The training total for this epoch correct is {} out of {} for a percentage of {}'.format(
                 sum(num_training_correct), sum(num_training_seen), round(sum(num_training_correct)/float(sum(num_training_seen)), 3)))
@@ -249,6 +267,7 @@ def train(args, dataset, model, optimizer):
                     ['context', 'mc question'][nind], nc, ns, round(nc/float(ns), 3)
                 ))
 
+            # save model and evaluate depending on args
             if global_step is not 0 and global_step % args.global_save_step == 0:
                 assert save_model_params(args=args, checkpoint=global_step, model=model) == -1
 
@@ -257,6 +276,7 @@ def train(args, dataset, model, optimizer):
 
             global_step += 1
 
+    # save model at the end
     assert save_model_params(args=args, checkpoint=global_step, model=model) == -1
 
 
@@ -288,18 +308,20 @@ def evaluate(args, subset, all_models=False):
         # calculate prediction
         predictions = torch.argmax(softmaxed_scores, dim=1)
 
-        num_training_seen = int(labels.shape[0])
-        num_training_correct = int(
+        num_seen = int(labels.shape[0])
+        num_correct = int(
             sum([labels[i, p].item() for i, p in zip(range(labels.shape[0]), predictions)]))
         logger.info('In {}: The number total correct is {} out of {} for a percentage of {}'.format(subset,
-            num_training_correct, num_training_seen, round(num_training_correct / num_training_seen, 2)))
+            num_correct, num_seen, round(num_correct / num_seen, 2)))
 
+        # depending on args do an ablation study
         if args.do_ablation:
             assert ablation(args, subset, model, checkpoint, dataset) == -1
 
     return -1
 
 def save_model_params(args, checkpoint, model):
+    # each checkpoint should have a different folder
     model_save_folder = os.path.join(args.output_dir, 'model_checkpoint_{}'.format(checkpoint))
 
     if not os.path.exists(model_save_folder):
@@ -309,6 +331,7 @@ def save_model_params(args, checkpoint, model):
     good_counter_save_file = os.path.join(model_save_folder, 'good_counter.py')
     all_counter_save_file = os.path.join(model_save_folder, 'all_counter.py')
 
+    # save the parameters and the counters for posterior edge calculations
     with open(model_save_file, 'wb') as mf:
         torch.save(model.state_dict(), mf)
 
@@ -391,6 +414,7 @@ def main():
                             help='Within evaluate do an ablation study.')
 
         args = parser.parse_args()
+
     else:
         class Args(object):
             def __init__(self):
@@ -426,7 +450,6 @@ def main():
                 self.essential_terms_hidden_dim = 512
                 self.attention_window_size = 3
 
-
         args = Args()
 
     # Setup logging
@@ -436,6 +459,7 @@ def main():
                         level=logging.INFO,
                         filename='logging/logging_{}_{}'.format('-'.join(args.domain_words), num_logging_files))
 
+    # initial checks
     if not os.path.exists(args.output_dir):
         raise Exception('Output directory does not exist here ({})'.format(args.output_dir))
     if not os.path.exists(args.cache_dir):
@@ -476,14 +500,10 @@ def main():
 
     args.output_dir = proposed_output_dir
 
+    # reassign cache dir based on domain words
     proposed_cache_dir = os.path.join(args.cache_dir, folder_name)
     if not os.path.exists(proposed_cache_dir):
         os.makedirs(proposed_cache_dir)
-    # else:
-    #     if os.listdir(proposed_cache_dir) and not args.overwrite_cache_dir:
-    #         raise Exception(
-    #             "Cache directory ({}) already exists and is not empty. Use --overwrite_cache_dir to overcome.".format(
-    #                 proposed_cache_dir))
 
     args.cache_dir = proposed_cache_dir
 
@@ -492,6 +512,7 @@ def main():
     args.device = device
     logger.info('Using device {}'.format(args.device))
 
+    # output args to logger
     for arg, value in sorted(vars(args).items()):
         logger.info("Argument {}: {}".format(arg, value))
 
