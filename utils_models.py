@@ -112,10 +112,10 @@ class GraphBlock(nn.Module):
         # calculate error using Binary Cross Entropy loss
         error = self.loss_function(softmaxed_scores, labels)
 
-        # calculate prediction
-        predictions = torch.argmax(softmaxed_scores, dim=1)
-
         if training:
+            # calculate prediction
+            predictions = torch.argmax(softmaxed_scores, dim=1)
+
             correct = [labels[i, p].item() for i, p in zip(range(labels.shape[0]), predictions)]
             for c, batch_edges, batch_ids_map in zip(correct, all_edge_data, all_ids_mapping):
                 pairings = []
@@ -134,7 +134,7 @@ class GraphBlock(nn.Module):
                 self.all_edge_connections.update(pairings_set)
 
         # return error and individual predictions for each element in batch
-        return error, predictions
+        return error, softmaxed_scores
 
     def subset_graph(self, G, input_ids):
         # subset dgl graph G and return a copy
