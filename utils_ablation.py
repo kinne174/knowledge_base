@@ -10,6 +10,7 @@ from utils_tokenizer import MyTokenizer
 logger = logging.getLogger(__name__)
 
 def ablation(args, subset, model, checkpoint, dataset):
+    logger.info('Beginning ablation study for subset {} on model checkpoint {}'.format(subset, checkpoint))
 
     # for speeding up computation load in mapping dict for good edges, keys are senders nodes; values are all receiver nodes
     good_edge_connections = model.good_edge_connections
