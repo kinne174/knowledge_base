@@ -3,7 +3,7 @@ import spacy
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
-from torch.utils.data.sampler import RandomSampler
+from torch.utils.data.sampler import RandomSampler, SequentialSampler
 import logging
 import csv
 from tqdm import trange, tqdm
@@ -12,6 +12,7 @@ import nltk
 from nltk.corpus import stopwords
 import getpass
 from collections import Counter
+import numpy as np
 
 #logging
 logger = logging.getLogger(__name__)
@@ -362,7 +363,20 @@ def train(args):
     input_masks_tensor = torch.tensor(all_input_masks, dtype=torch.long)
     labels_tensor = torch.tensor(all_labels_list, dtype=torch.float)
 
-    dataset = TensorDataset(tokens_tensor, input_masks_tensor, labels_tensor)
+    if args.do_evaluate:
+        # set aside a dataset to evaluate on
+        percent_eval = 0.2
+        num_samples = tokens_tensor.shape[0]
+        num_samples_to_eval = int(num_samples * percent_eval)
+        all_indices = torch.randperm(num_samples)
+        eval_indices = all_indices[:num_samples_to_eval]
+        train_indices = all_indices[num_samples_to_eval:]
+
+        eval_dataset = TensorDataset(tokens_tensor[eval_indices, :], input_masks_tensor[eval_indices, :], labels_tensor[eval_indices, :])
+        dataset= TensorDataset(tokens_tensor[train_indices, :], input_masks_tensor[train_indices, :], labels_tensor[train_indices, :])
+    else:
+
+        dataset = TensorDataset(tokens_tensor, input_masks_tensor, labels_tensor)
 
     # create sampler to process batches
     train_sampler = RandomSampler(dataset, replacement=False)
@@ -405,7 +419,54 @@ def train(args):
 
             logger.info('The error is {}'.format(error))
 
+    if args.do_evaluate:
+        evaluate(args, eval_dataset, model)
+
     save_model(model, embedding_matrix, args.essential_terms_hidden_dim, word_to_idx, counter)
+
+
+def evaluate(args, dataset, model):
+
+    # change model to eval
+    model.eval()
+
+    # create sampler to process batches
+    eval_sampler = SequentialSampler(dataset)
+    eval_dataloader = DataLoader(dataset, sampler=eval_sampler, batch_size=args.batch_size)
+
+    eval_iterator = tqdm(eval_dataloader, desc="Evaluating, batch size {}, Num examples {}".format(args.batch_size, len(dataset)))
+
+    # start evaluating
+    logger.info('Starting to evaluate!')
+    logger.info('There are {} examples.'.format(len(dataset)))
+
+    all_labels = dataset.tensors[2]
+    all_scores = torch.empty_like(all_labels)
+    free_row = 0
+
+    for iteration, batch in enumerate(eval_iterator):
+
+        # get batch
+        batch = tuple(t.to(args.device) for t in batch)
+        inputs = {'input_ids': batch[0],
+                  'input_masks': batch[1],
+                  }
+
+        scores, _ = model(**inputs)
+
+        current_batch_size = inputs['input_ids'].shape[0]
+        all_scores[free_row:free_row+current_batch_size, :] = scores.detach()
+        free_row += current_batch_size
+
+    assert all_scores.shape == all_labels.shape
+    frob_norm = np.linalg.norm(np.subtract(all_labels, all_scores), 'fro')
+
+    num_correct = torch.sum(torch.eq(all_scores > 0.5, all_labels > 0.5)).item()
+    num_seen = all_scores.numel()
+
+    logger.info('The Frobenius norm is {:0.4f}'.format(frob_norm))
+    logger.info('The number correct is {} for a percentage of {:0.3f}'.format(num_correct, num_correct/num_seen))
+    logger.info('Done!')
 
 
 if __name__ == '__main__':
@@ -422,6 +483,8 @@ if __name__ == '__main__':
                             help='Batch size of each iteration')
         parser.add_argument('--essential_terms_hidden_dim', default=None, type=int, required=True,
                             help='Dimension size of hidden layer')
+        parser.add_argument('--do_evaluate', action='store_true',
+                            help='evaluate a model')
 
         # Optional
         parser.add_argument('--cutoff', default=None, type=int,
@@ -436,6 +499,7 @@ if __name__ == '__main__':
                 self.epochs = 10
                 self.batch_size = 12
                 self.essential_terms_hidden_dim = 100
+                self.do_evaluate = True
 
                 self.cutoff = None
                 self.seed = 1234
@@ -461,3 +525,6 @@ if __name__ == '__main__':
     nlp = spacy.load("en_core_web_md", disable=['ner', 'parser'])
 
     train(args)
+
+
+# TODO create a test portion of data to report in dissertation, with graph of errors of training (just in case)

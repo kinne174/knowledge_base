@@ -549,6 +549,7 @@ if __name__ == '__main__':
 
 # TODO explore adding more parameters to models
 # TODO try resampling examples between epochs
-# TODO Think about what kind of analysis can be done with what I currently have, what do I want to write about? What kind of ablation study or GNN analysis can I perform?
-
-
+# TODO graphs of error for training (mainly context but also overall)
+# TODO summary of errors in ablation study (specifically force-matter-energy)
+# TODO try taking parts out and compare performance, such as the resampling/ edge sampling/ edge weighting/ anything to do with GNN
+# TODO find total number of parameters in network and individual models
