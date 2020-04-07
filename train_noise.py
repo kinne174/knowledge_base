@@ -467,15 +467,15 @@ def evaluate(args, dataset, model):
 
     all_labels = torch.tensor(all_labels, dtype=torch.float).reshape((-1,))
     all_scores = torch.tensor(all_scores, dtype=torch.float).reshape((-1,))
+    num_seen = all_scores.numel()
 
-    frob_norm = np.linalg.norm(np.subtract(all_labels, all_scores), 'fro')
+    rmse = np.sqrt(((all_scores - all_labels) ** 2).mean())
 
     num_correct = torch.sum(torch.eq(all_scores > 0.5, all_labels > 0.5)).item()
-    num_seen = all_scores.numel()
 
     num_zeros = torch.sum(all_labels < 0.5)
 
-    logger.info('The Frobenius norm is {:0.4f}'.format(frob_norm))
+    logger.info('The RMSE is {:0.4f}'.format(rmse))
     logger.info('The number correct is {} for a percentage of {:0.3f}'.format(num_correct, num_correct/float(num_seen)))
     logger.info('The number of zeros is {} for a percentage of {}'.format(num_zeros, num_zeros/float(num_seen)))
     logger.info('Done!')
