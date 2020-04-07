@@ -438,7 +438,7 @@ def evaluate(args, dataset, model):
 
     # start evaluating
     logger.info('Starting to evaluate!')
-    logger.info('There are {} examples.'.format(len(dataset)))
+    logger.info('There are {} sentences.'.format(len(dataset)))
 
     all_labels = []
     all_scores = []
@@ -476,8 +476,8 @@ def evaluate(args, dataset, model):
     num_zeros = torch.sum(all_labels < 0.5)
 
     logger.info('The RMSE is {:0.4f}'.format(rmse))
-    logger.info('The number correct is {} for a percentage of {:0.3f}'.format(num_correct, num_correct/float(num_seen)))
-    logger.info('The number of zeros is {} for a percentage of {}'.format(num_zeros, num_zeros/float(num_seen)))
+    logger.info('The number correct is {} out of {} for a percentage of {:0.3f}'.format(num_correct, num_seen, num_correct/float(num_seen)))
+    logger.info('The number of zeros is {} out of {} for a percentage of {}'.format(num_zeros, num_seen, num_zeros/float(num_seen)))
     logger.info('Done!')
 
 
