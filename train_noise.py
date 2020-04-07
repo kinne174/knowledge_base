@@ -417,7 +417,7 @@ def train(args):
             #     print(torch.max(list(model.parameters())[i].grad))
             # print('hi')
 
-            logger.info('The error is {}'.format(error))
+            logger.info('The error for Epoch {} batch {} is {}'.format(epoch, iteration, error))
 
     if args.do_evaluate:
         evaluate(args, eval_dataset, model)
@@ -440,8 +440,8 @@ def evaluate(args, dataset, model):
     logger.info('Starting to evaluate!')
     logger.info('There are {} examples.'.format(len(dataset)))
 
-    all_labels = dataset.tensors[2]
-    all_scores = torch.empty_like(all_labels)
+    all_labels = []
+    all_scores = []
     free_row = 0
 
     for iteration, batch in enumerate(eval_iterator):
@@ -450,22 +450,34 @@ def evaluate(args, dataset, model):
         batch = tuple(t.to(args.device) for t in batch)
         inputs = {'input_ids': batch[0],
                   'input_masks': batch[1],
+                  'labels': batch[2],
                   }
 
         scores, _ = model(**inputs)
 
-        current_batch_size = inputs['input_ids'].shape[0]
-        all_scores[free_row:free_row+current_batch_size, :] = scores.detach()
-        free_row += current_batch_size
+        assert scores.shape == inputs['labels'].shape, 'Scores shape {} and labels shape {} is not the same'.format(scores.shape,
+                                                                                                                    inputs['labels'].shape)
 
-    assert all_scores.shape == all_labels.shape
+        current_batch_size = inputs['input_ids'].shape[0]
+        for i in range(current_batch_size):
+            all_labels.extend(inputs['labels'][i, inputs['input_masks'][i, :].nonzero().squeeze()].tolist())
+            all_scores.extend(scores[i, inputs['input_masks'][i, :].nonzero().squeeze()].tolist())
+
+    assert len(all_labels) == len(all_scores)
+
+    all_labels = torch.tensor(all_labels, dtype=torch.float).reshape((-1,))
+    all_scores = torch.tensor(all_scores, dtype=torch.float).reshape((-1,))
+
     frob_norm = np.linalg.norm(np.subtract(all_labels, all_scores), 'fro')
 
     num_correct = torch.sum(torch.eq(all_scores > 0.5, all_labels > 0.5)).item()
     num_seen = all_scores.numel()
 
+    num_zeros = torch.sum(all_labels < 0.5)
+
     logger.info('The Frobenius norm is {:0.4f}'.format(frob_norm))
-    logger.info('The number correct is {} for a percentage of {:0.3f}'.format(num_correct, num_correct/num_seen))
+    logger.info('The number correct is {} for a percentage of {:0.3f}'.format(num_correct, num_correct/float(num_seen)))
+    logger.info('The number of zeros is {} for a percentage of {}'.format(num_zeros, num_zeros/float(num_seen)))
     logger.info('Done!')
 
 
@@ -483,12 +495,12 @@ if __name__ == '__main__':
                             help='Batch size of each iteration')
         parser.add_argument('--essential_terms_hidden_dim', default=None, type=int, required=True,
                             help='Dimension size of hidden layer')
-        parser.add_argument('--do_evaluate', action='store_true',
-                            help='evaluate a model')
 
         # Optional
         parser.add_argument('--cutoff', default=None, type=int,
                             help='Cutoff number of examples when testing')
+        parser.add_argument('--do_evaluate', action='store_true',
+                            help='evaluate a model')
         parser.add_argument('--seed', default=1234, type=int,
                             help='Seed for randomization')
 
