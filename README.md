@@ -3,8 +3,11 @@
 The goal of this project is to create a domain specific knowledge base 
 that is easily queryable in order to better answer multiple choice questions.
 The knowledge base is built with the Graph Neural Network (GNN) architecture<sup>1,2</sup> 
-which is comprised of nodes *V*, edges *E* and a universal attribute *U* updated with the 
-message passing system as seen in the image<sup>1</sup> below:
+which is comprised of nodes *V*, edges *E* and a universal attribute *U*. 
+In the knowledge base words are represented as nodes, and the latent connection
+between the words are represented as the edges. The universal attribute is used to
+determine if the connections represent a correct pairing of question and answer option.
+The knowledge base is updated with the message passing system as seen in the image<sup>1</sup> below:
 
 ![message passing](https://github.com/kinne174/knowledge_base/blob/master/pictures/battaglia_message.PNG)
 
@@ -20,7 +23,10 @@ message passing system as seen in the image<sup>1</sup> below:
  answering as sentence completion we can use a semi-supervised approach to train
  our knowledge base through masking. 
  
- One iteration of training can be seen below:
+ One iteration of training involves subsetting the words of the question and answer
+ from the knowledge base, aggregating the node information of each word using the edges
+ and embeddings of connected words, creating a sentence representation with an
+ LSTM network and using a MLP to classify. A visual of an iteration can be seen below:
  
  ![my network](https://github.com/kinne174/knowledge_base/blob/master/pictures/my_network.png)
 
