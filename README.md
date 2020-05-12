@@ -6,7 +6,7 @@ The knowledge base is built with the Graph Neural Network (GNN) architecture<sup
 which is comprised of nodes *V*, edges *E* and a universal attribute *U* updated with the 
 message passing system as seen in the image<sup>1</sup> below:
 
-![message passing](https://github.com/kinne174/knowledge_graph/blob/master/pictures/battaglia_message.PNG)
+![message passing](https://github.com/kinne174/knowledge_base/blob/master/pictures/battaglia_message.PNG)
 
  The models used on top of the GNN are Recurrant Neural Networks (LSTM), and 
  Multi Layer Perceptrons.
@@ -22,7 +22,7 @@ message passing system as seen in the image<sup>1</sup> below:
  
  One iteration of training can be seen below:
  
- ![my network](https://github.com/kinne174/knowledge_graph/blob/master/pictures/my_network.PNG)
+ ![my network](https://github.com/kinne174/knowledge_base/blob/master/pictures/my_network.png)
 
 This repository is made up of the main file run_kb.py which includes the data
 loading, training loop and evaluation. The utils_*.py files are supporting files
